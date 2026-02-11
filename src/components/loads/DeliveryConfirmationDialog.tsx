@@ -62,6 +62,7 @@ interface DeliveryConfirmationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   load: Load | null;
+  verificationOnly?: boolean;
 }
 
 // Parse time_window JSON to get times
@@ -100,7 +101,7 @@ function parseTimeWindow(timeWindow: string) {
   }
 }
 
-export function DeliveryConfirmationDialog({ open, onOpenChange, load }: DeliveryConfirmationDialogProps) {
+export function DeliveryConfirmationDialog({ open, onOpenChange, load, verificationOnly = false }: DeliveryConfirmationDialogProps) {
   const updateLoad = useUpdateLoad();
   const createLoad = useCreateLoad();
 
@@ -172,6 +173,23 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load }: Deliver
       },
     };
 
+    // Prepare main fields for actual times (ISO string if date provided)
+    const mainFields: any = {};
+    if (data.originActualArrival) mainFields.actual_loading_arrival = data.originActualArrival;
+    if (data.originActualDeparture) mainFields.actual_loading_departure = data.originActualDeparture;
+    if (data.destActualArrival) mainFields.actual_offloading_arrival = data.destActualArrival;
+    if (data.destActualDeparture) mainFields.actual_offloading_departure = data.destActualDeparture;
+    // Mark as verified if provided
+    if (data.originActualArrival) mainFields.actual_loading_arrival_verified = true;
+    if (data.originActualDeparture) mainFields.actual_loading_departure_verified = true;
+    if (data.destActualArrival) mainFields.actual_offloading_arrival_verified = true;
+    if (data.destActualDeparture) mainFields.actual_offloading_departure_verified = true;
+    // Set source as manual
+    if (data.originActualArrival) mainFields.actual_loading_arrival_source = 'manual';
+    if (data.originActualDeparture) mainFields.actual_loading_departure_source = 'manual';
+    if (data.destActualArrival) mainFields.actual_offloading_arrival_source = 'manual';
+    if (data.destActualDeparture) mainFields.actual_offloading_departure_source = 'manual';
+
     // Update notes with delivery notes if provided
     const updatedNotes = data.deliveryNotes 
       ? `${load.notes || ''}\n\n[Delivery Notes - ${format(new Date(), 'dd MMM yyyy HH:mm')}]\n${data.deliveryNotes}`.trim()
@@ -183,6 +201,7 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load }: Deliver
       time_window: JSON.stringify(timeData),
       status: 'delivered',
       notes: updatedNotes,
+      ...mainFields,
     }, {
       onSuccess: async () => {
         // If backload is requested, create it
@@ -264,13 +283,31 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load }: Deliver
         plannedArrival: currentTimes.destination.plannedArrival,
         plannedDeparture: currentTimes.destination.plannedDeparture,
         actualArrival: data.destActualArrival || currentTimes.destination.actualArrival,
-        actualDeparture: data.destActualDeparture || currentTimes.destination.actualDeparture,
+        actualDeparture: data.destActualDeparture || currentTimes.destination.actualArrival,
       },
     };
+
+    // Prepare main fields for actual times (ISO string if date provided)
+    const mainFields: any = {};
+    if (data.originActualArrival) mainFields.actual_loading_arrival = data.originActualArrival;
+    if (data.originActualDeparture) mainFields.actual_loading_departure = data.originActualDeparture;
+    if (data.destActualArrival) mainFields.actual_offloading_arrival = data.destActualArrival;
+    if (data.destActualDeparture) mainFields.actual_offloading_departure = data.destActualDeparture;
+    // Mark as verified if provided
+    if (data.originActualArrival) mainFields.actual_loading_arrival_verified = true;
+    if (data.originActualDeparture) mainFields.actual_loading_departure_verified = true;
+    if (data.destActualArrival) mainFields.actual_offloading_arrival_verified = true;
+    if (data.destActualDeparture) mainFields.actual_offloading_departure_verified = true;
+    // Set source as manual
+    if (data.originActualArrival) mainFields.actual_loading_arrival_source = 'manual';
+    if (data.originActualDeparture) mainFields.actual_loading_departure_source = 'manual';
+    if (data.destActualArrival) mainFields.actual_offloading_arrival_source = 'manual';
+    if (data.destActualDeparture) mainFields.actual_offloading_departure_source = 'manual';
 
     updateLoad.mutate({
       id: load.id,
       time_window: JSON.stringify(timeData),
+      ...mainFields,
     }, {
       onSuccess: () => {
         onOpenChange(false);
@@ -290,10 +327,10 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load }: Deliver
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-green-600 text-white">
               <CheckCircle className="h-4 w-4" />
             </span>
-            Confirm Delivery - {load.load_id}
+            {verificationOnly ? `Verify Times - ${load.load_id}` : `Confirm Delivery - ${load.load_id}`}
           </DialogTitle>
           <DialogDescription>
-            Enter actual arrival and departure times to confirm delivery
+            {verificationOnly ? 'Verify actual arrival and departure times' : 'Enter actual arrival and departure times to confirm delivery'}
           </DialogDescription>
         </DialogHeader>
 
@@ -353,9 +390,12 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load }: Deliver
                     name="originActualArrival"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="flex items-center gap-1 text-green-700 dark:text-green-400">
+                        <FormLabel className="flex items-center gap-2 text-green-700 dark:text-green-400">
                           <Clock className="h-3 w-3" />
                           Actual Arrival
+                          {load?.actual_loading_arrival_source === 'auto' && (
+                            <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Auto</span>
+                          )}
                         </FormLabel>
                         <FormControl>
                           <Input type="time" className="border-green-300" {...field} />
@@ -369,9 +409,12 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load }: Deliver
                     name="originActualDeparture"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="flex items-center gap-1 text-green-700 dark:text-green-400">
+                        <FormLabel className="flex items-center gap-2 text-green-700 dark:text-green-400">
                           <Clock className="h-3 w-3" />
                           Actual Departure
+                          {load?.actual_loading_departure_source === 'auto' && (
+                            <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Auto</span>
+                          )}
                         </FormLabel>
                         <FormControl>
                           <Input type="time" className="border-green-300" {...field} />
@@ -418,9 +461,12 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load }: Deliver
                     name="destActualArrival"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="flex items-center gap-1 text-blue-700 dark:text-blue-400">
+                        <FormLabel className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
                           <Clock className="h-3 w-3" />
                           Actual Arrival
+                          {load?.actual_offloading_arrival_source === 'auto' && (
+                            <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Auto</span>
+                          )}
                         </FormLabel>
                         <FormControl>
                           <Input type="time" className="border-blue-300" {...field} />
@@ -434,9 +480,12 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load }: Deliver
                     name="destActualDeparture"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="flex items-center gap-1 text-blue-700 dark:text-blue-400">
+                        <FormLabel className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
                           <Clock className="h-3 w-3" />
                           Actual Departure
+                          {load?.actual_offloading_departure_source === 'auto' && (
+                            <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Auto</span>
+                          )}
                         </FormLabel>
                         <FormControl>
                           <Input type="time" className="border-blue-300" {...field} />
@@ -450,201 +499,205 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load }: Deliver
             </Card>
 
             {/* Delivery Notes */}
-            <FormField
-              control={form.control}
-              name="deliveryNotes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Delivery Notes (Optional)</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Any notes about the delivery (delays, issues, etc.)..."
-                      className="resize-none"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {!verificationOnly && (
+              <FormField
+                control={form.control}
+                name="deliveryNotes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Delivery Notes (Optional)</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Any notes about the delivery (delays, issues, etc.)..."
+                        className="resize-none"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             {/* Backload Section */}
-            <Card className="border-2 border-orange-200 bg-orange-50/30 dark:bg-orange-950/10">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <RotateCcw className="h-4 w-4 text-orange-600" />
-                    Create Backload
-                  </CardTitle>
-                  <FormField
-                    control={form.control}
-                    name="createBackload"
-                    render={({ field }) => (
-                      <FormItem className="flex items-center gap-2">
-                        <FormLabel className="text-sm text-muted-foreground">Enable</FormLabel>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </CardHeader>
-              {createBackload && (
-                <CardContent className="space-y-4">
-                  <div className="flex items-center gap-2 p-3 rounded-md bg-orange-100/50 dark:bg-orange-900/20 text-sm">
-                    <Truck className="h-4 w-4 text-orange-600" />
-                    <span>
-                      Backload from <strong>{getLocationDisplayName(load.destination)}</strong> (current delivery destination)
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
+            {!verificationOnly && (
+              <Card className="border-2 border-orange-200 bg-orange-50/30 dark:bg-orange-950/10">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <RotateCcw className="h-4 w-4 text-orange-600" />
+                      Create Backload
+                    </CardTitle>
                     <FormField
                       control={form.control}
-                      name="backloadDestination"
+                      name="createBackload"
                       render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-orange-700 dark:text-orange-400">
-                            Backload Destination
-                          </FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger className="border-orange-300">
-                                <SelectValue placeholder="Select destination" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="BV">BV</SelectItem>
-                              <SelectItem value="CBC">CBC</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="backloadCargoType"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-orange-700 dark:text-orange-400">
-                            Cargo Type
-                          </FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
-                            <FormControl>
-                              <SelectTrigger className="border-orange-300">
-                                <SelectValue placeholder="Select type" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="Packaging">Packaging</SelectItem>
-                              <SelectItem value="Fertilizer">Fertilizer</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
+                        <FormItem className="flex items-center gap-2">
+                          <FormLabel className="text-sm text-muted-foreground">Enable</FormLabel>
+                          <FormControl>
+                            <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
                         </FormItem>
                       )}
                     />
                   </div>
+                </CardHeader>
+                {createBackload && (
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center gap-2 p-3 rounded-md bg-orange-100/50 dark:bg-orange-900/20 text-sm">
+                      <Truck className="h-4 w-4 text-orange-600" />
+                      <span>
+                        Backload from <strong>{getLocationDisplayName(load.destination)}</strong> (current delivery destination)
+                      </span>
+                    </div>
 
-                  {/* Container Quantities */}
-                  <div className="space-y-3">
-                    <label className="text-sm font-medium text-orange-700 dark:text-orange-400">
-                      Container Quantities
-                    </label>
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-2 gap-4">
                       <FormField
                         control={form.control}
-                        name="binsQuantity"
+                        name="backloadDestination"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs text-muted-foreground">Bins</FormLabel>
-                            <FormControl>
-                              <Input 
-                                type="number" 
-                                min="0"
-                                placeholder="0"
-                                className="border-orange-300"
-                                {...field}
-                                onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                              />
-                            </FormControl>
+                            <FormLabel className="text-orange-700 dark:text-orange-400">
+                              Backload Destination
+                            </FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger className="border-orange-300">
+                                  <SelectValue placeholder="Select destination" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="BV">BV</SelectItem>
+                                <SelectItem value="CBC">CBC</SelectItem>
+                              </SelectContent>
+                            </Select>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
                       <FormField
                         control={form.control}
-                        name="cratesQuantity"
+                        name="backloadCargoType"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs text-muted-foreground">Crates</FormLabel>
-                            <FormControl>
-                              <Input 
-                                type="number" 
-                                min="0"
-                                placeholder="0"
-                                className="border-orange-300"
-                                {...field}
-                                onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="palletsQuantity"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs text-muted-foreground">Pallets</FormLabel>
-                            <FormControl>
-                              <Input 
-                                type="number" 
-                                min="0"
-                                placeholder="0"
-                                className="border-orange-300"
-                                {...field}
-                                onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                              />
-                            </FormControl>
+                            <FormLabel className="text-orange-700 dark:text-orange-400">
+                              Cargo Type
+                            </FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger className="border-orange-300">
+                                  <SelectValue placeholder="Select type" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="Packaging">Packaging</SelectItem>
+                                <SelectItem value="Fertilizer">Fertilizer</SelectItem>
+                              </SelectContent>
+                            </Select>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      Enter quantities for each container type. You can use multiple types.
-                    </p>
-                  </div>
 
-                  <FormField
-                    control={form.control}
-                    name="backloadNotes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-orange-700 dark:text-orange-400">
-                          Backload Notes (Optional)
-                        </FormLabel>
-                        <FormControl>
-                          <Textarea
-                            placeholder="Notes for the backload..."
-                            className="resize-none border-orange-300"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </CardContent>
-              )}
-            </Card>
+                    {/* Container Quantities */}
+                    <div className="space-y-3">
+                      <label className="text-sm font-medium text-orange-700 dark:text-orange-400">
+                        Container Quantities
+                      </label>
+                      <div className="grid grid-cols-3 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="binsQuantity"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs text-muted-foreground">Bins</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  type="number" 
+                                  min="0"
+                                  placeholder="0"
+                                  className="border-orange-300"
+                                  {...field}
+                                  onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="cratesQuantity"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs text-muted-foreground">Crates</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  type="number" 
+                                  min="0"
+                                  placeholder="0"
+                                  className="border-orange-300"
+                                  {...field}
+                                  onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="palletsQuantity"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs text-muted-foreground">Pallets</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  type="number" 
+                                  min="0"
+                                  placeholder="0"
+                                  className="border-orange-300"
+                                  {...field}
+                                  onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Enter quantities for each container type. You can use multiple types.
+                      </p>
+                    </div>
+
+                    <FormField
+                      control={form.control}
+                      name="backloadNotes"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-orange-700 dark:text-orange-400">
+                            Backload Notes (Optional)
+                          </FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder="Notes for the backload..."
+                              className="resize-none border-orange-300"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </CardContent>
+                )}
+              </Card>
+            )}
 
             <div className="flex justify-end gap-3 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -656,19 +709,21 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load }: Deliver
                 onClick={handleSaveOnly}
                 disabled={updateLoad.isPending || createLoad.isPending}
               >
-                Save Times Only
+                {verificationOnly ? 'Save Verification' : 'Save Times Only'}
               </Button>
-              <Button 
-                type="submit" 
-                className="bg-green-600 hover:bg-green-700"
-                disabled={updateLoad.isPending || createLoad.isPending}
-              >
-                {updateLoad.isPending || createLoad.isPending 
-                  ? 'Processing...' 
-                  : createBackload 
-                    ? 'Deliver & Create Backload' 
-                    : 'Mark as Delivered'}
-              </Button>
+              {!verificationOnly && (
+                <Button 
+                  type="submit" 
+                  className="bg-green-600 hover:bg-green-700"
+                  disabled={updateLoad.isPending || createLoad.isPending}
+                >
+                  {updateLoad.isPending || createLoad.isPending 
+                    ? 'Processing...' 
+                    : createBackload 
+                      ? 'Deliver & Create Backload' 
+                      : 'Mark as Delivered'}
+                </Button>
+              )}
             </div>
           </form>
         </Form>

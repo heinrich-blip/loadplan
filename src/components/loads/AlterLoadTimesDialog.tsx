@@ -38,6 +38,29 @@ export function AlterLoadTimesDialog({ open, onOpenChange, load }) {
   const updateTimes = useUpdateLoadTimes();
 
   const onSubmit = (values: FormData) => {
+    // Parse and update time_window JSON
+    let timeWindowData;
+    try {
+      timeWindowData = load.time_window ? JSON.parse(load.time_window) : {};
+    } catch {
+      timeWindowData = {};
+    }
+    timeWindowData.origin = timeWindowData.origin || {};
+    timeWindowData.destination = timeWindowData.destination || {};
+
+    if (values.actual_loading_arrival) {
+      timeWindowData.origin.actualArrival = values.actual_loading_arrival;
+    }
+    if (values.actual_loading_departure) {
+      timeWindowData.origin.actualDeparture = values.actual_loading_departure;
+    }
+    if (values.actual_offloading_arrival) {
+      timeWindowData.destination.actualArrival = values.actual_offloading_arrival;
+    }
+    if (values.actual_offloading_departure) {
+      timeWindowData.destination.actualDeparture = values.actual_offloading_departure;
+    }
+
     updateTimes.mutate({
       id: load.id,
       times: {
@@ -46,6 +69,8 @@ export function AlterLoadTimesDialog({ open, onOpenChange, load }) {
         actual_loading_departure_source: values.actual_loading_departure ? "manual" : undefined,
         actual_offloading_arrival_source: values.actual_offloading_arrival ? "manual" : undefined,
         actual_offloading_departure_source: values.actual_offloading_departure ? "manual" : undefined,
+        // @ts-expect-error time_window is intentionally included for structured/legacy time data – add to LoadTimes type in useLoads.ts for proper typing
+        time_window: JSON.stringify(timeWindowData),
       },
     }, {
       onSuccess: () => onOpenChange(false),
@@ -60,22 +85,42 @@ export function AlterLoadTimesDialog({ open, onOpenChange, load }) {
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div>
-            <label>Loading Arrival</label>
+            <label className="flex items-center gap-2">
+              Loading Arrival
+              {load.actual_loading_arrival_source === 'auto' && (
+                <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Auto</span>
+              )}
+            </label>
             <Input type="datetime-local" {...form.register("actual_loading_arrival")} />
             <Checkbox {...form.register("actual_loading_arrival_verified")} /> Verified
           </div>
           <div>
-            <label>Loading Departure</label>
+            <label className="flex items-center gap-2">
+              Loading Departure
+              {load.actual_loading_departure_source === 'auto' && (
+                <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Auto</span>
+              )}
+            </label>
             <Input type="datetime-local" {...form.register("actual_loading_departure")} />
             <Checkbox {...form.register("actual_loading_departure_verified")} /> Verified
           </div>
           <div>
-            <label>Offloading Arrival</label>
+            <label className="flex items-center gap-2">
+              Offloading Arrival
+              {load.actual_offloading_arrival_source === 'auto' && (
+                <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Auto</span>
+              )}
+            </label>
             <Input type="datetime-local" {...form.register("actual_offloading_arrival")} />
             <Checkbox {...form.register("actual_offloading_arrival_verified")} /> Verified
           </div>
           <div>
-            <label>Offloading Departure</label>
+            <label className="flex items-center gap-2">
+              Offloading Departure
+              {load.actual_offloading_departure_source === 'auto' && (
+                <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Auto</span>
+              )}
+            </label>
             <Input type="datetime-local" {...form.register("actual_offloading_departure")} />
             <Checkbox {...form.register("actual_offloading_departure_verified")} /> Verified
           </div>

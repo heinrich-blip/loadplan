@@ -30,6 +30,7 @@ import
   } from "@/components/ui/table";
 import { Load, useDeleteLoad } from "@/hooks/useLoads";
 import { AlterLoadTimesDialog } from "./AlterLoadTimesDialog";
+import { DeliveryConfirmationDialog } from "./DeliveryConfirmationDialog";
 import { exportLoadToPdf } from "@/lib/exportLoadToPdf";
 import { cn, getLocationDisplayName } from "@/lib/utils";
 import { format, isToday, isTomorrow, isYesterday, parseISO } from "date-fns";
@@ -165,6 +166,9 @@ export function LoadsTable({
     useState<Load | null>(null);
   const [alterDialogOpen, setAlterDialogOpen] = useState(false);
   const [loadToAlter, setLoadToAlter] = useState<Load | null>(null);
+  const [deliveryDialogOpen, setDeliveryDialogOpen] = useState(false);
+  const [loadForDelivery, setLoadForDelivery] = useState<Load | null>(null);
+  const [verificationOnly, setVerificationOnly] = useState(false);
     // Helper: check if any actual time is missing or unverified
     function needsVerification(load: Load) {
       return (
@@ -179,6 +183,7 @@ export function LoadsTable({
     function handleQuickAdd(load: Load) {
       const now = new Date();
       const times: any = {};
+      // Prepare new actual times
       if (!load.actual_loading_arrival) {
         times.actual_loading_arrival = now.toISOString();
         times.actual_loading_arrival_verified = true;
@@ -199,8 +204,31 @@ export function LoadsTable({
         times.actual_offloading_departure_verified = true;
         times.actual_offloading_departure_source = 'manual';
       }
+
+      // Also update time_window JSON
+      let timeWindowData;
+      try {
+        timeWindowData = load.time_window ? JSON.parse(load.time_window) : {};
+      } catch {
+        timeWindowData = {};
+      }
+      timeWindowData.origin = timeWindowData.origin || {};
+      timeWindowData.destination = timeWindowData.destination || {};
+      if (!load.actual_loading_arrival) {
+        timeWindowData.origin.actualArrival = times.actual_loading_arrival;
+      }
+      if (!load.actual_loading_departure) {
+        timeWindowData.origin.actualDeparture = times.actual_loading_departure;
+      }
+      if (!load.actual_offloading_arrival) {
+        timeWindowData.destination.actualArrival = times.actual_offloading_arrival;
+      }
+      if (!load.actual_offloading_departure) {
+        timeWindowData.destination.actualDeparture = times.actual_offloading_departure;
+      }
+
       if (Object.keys(times).length > 0) {
-        // Use the update hook
+        times.time_window = JSON.stringify(timeWindowData);
         import("@/hooks/useLoads").then(({ useUpdateLoadTimes }) => {
           const update = useUpdateLoadTimes();
           update.mutate({ id: load.id, times });
@@ -228,7 +256,9 @@ export function LoadsTable({
 
   const handleDeliveryClick = (e: React.MouseEvent, load: Load) => {
     e.stopPropagation();
-    onConfirmDelivery?.(load);
+    setLoadForDelivery(load);
+    setVerificationOnly(false);
+    setDeliveryDialogOpen(true);
   };
 
   const handleBackloadClick = (e: React.MouseEvent, load: Load) => {
@@ -378,7 +408,21 @@ export function LoadsTable({
                     >
                       <TableCell>
                         {needsVerification(load) && (
-                          <Badge variant="destructive" className="mb-1">Needs Verification</Badge>
+                          <div className="flex items-center gap-2 mb-1">
+                            <Badge variant="destructive">Needs Verification</Badge>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setLoadForDelivery(load);
+                                setVerificationOnly(true);
+                                setDeliveryDialogOpen(true);
+                              }}
+                            >
+                              Verify Times
+                            </Button>
+                          </div>
                         )}
                         <div>
                           <p className="font-semibold text-foreground">
@@ -783,6 +827,13 @@ export function LoadsTable({
         open={thirdPartyBackloadDialogOpen}
         onOpenChange={setThirdPartyBackloadDialogOpen}
         load={loadForThirdPartyBackload}
+      />
+
+      <DeliveryConfirmationDialog
+        open={deliveryDialogOpen}
+        onOpenChange={setDeliveryDialogOpen}
+        load={loadForDelivery}
+        verificationOnly={verificationOnly}
       />
     </div>
   );

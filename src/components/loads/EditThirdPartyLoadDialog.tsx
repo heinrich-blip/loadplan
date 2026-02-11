@@ -44,6 +44,8 @@ import { format, parseISO } from "date-fns";
 import
   {
     CalendarIcon,
+    Check,
+    ChevronsUpDown,
     Clock,
     Link2,
     Loader2,
@@ -52,20 +54,31 @@ import
     Truck,
     UserPlus,
   } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { CreateClientDialog } from "./CreateClientDialog";
+
+// === NEW IMPORTS FOR DEPOT COMBOBOX ===
+import { DEPOTS } from "@/constants/depots";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 
 const formSchema = z.object({
   priority: z.enum(["high", "medium", "low"]),
   loadingDate: z.date({ required_error: "Loading date is required" }),
   offloadingDate: z.date({ required_error: "Offloading date is required" }),
   customerId: z.string().min(1, "Customer is required"),
-  loadingPlaceName: z.string().min(1, "Loading place name is required"),
+  loadingPlaceName: z.string().min(1, "Loading depot is required"),
   loadingAddress: z.string().optional(),
-  offloadingPlaceName: z.string().min(1, "Offloading place name is required"),
+  offloadingPlaceName: z.string().min(1, "Offloading depot is required"),
   offloadingAddress: z.string().optional(),
   loadingPlannedArrival: z.string().min(1, "Planned arrival time is required"),
   loadingPlannedDeparture: z
@@ -92,7 +105,6 @@ interface EditThirdPartyLoadDialogProps {
   load: Load | null;
 }
 
-// Parse time_window JSON for third-party loads
 function parseTimeWindow(timeWindow: string) {
   try {
     const data = JSON.parse(timeWindow);
@@ -111,6 +123,79 @@ function parseTimeWindow(timeWindow: string) {
     };
   }
 }
+
+// === DEPOT COMBOBOX COMPONENT (reused from Add dialog) ===
+const DepotCombobox: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+}> = ({ value, onChange }) => {
+  const [open, setOpen] = useState(false);
+
+  const depotsByCountry = useMemo(() => {
+    const map: Record<string, typeof DEPOTS> = {};
+    DEPOTS.forEach((depot) => {
+      const key = depot.country;
+      if (!map[key]) map[key] = [];
+      map[key].push(depot);
+    });
+    return map;
+  }, []);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal"
+        >
+          {value
+            ? DEPOTS.find((depot) => depot.name === value)?.name ?? value
+            : "Select a depot..."}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-full p-0 max-w-[--radix-popover-trigger-width]">
+        <Command>
+          <CommandInput placeholder="Search depots..." />
+          <CommandList>
+            <CommandEmpty>No depot found.</CommandEmpty>
+            {Object.keys(depotsByCountry)
+              .sort()
+              .map((country) => (
+                <CommandGroup key={country} heading={country}>
+                  {depotsByCountry[country]
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((depot) => (
+                      <CommandItem
+                        key={depot.id}
+                        value={depot.name}
+                        onSelect={() => {
+                          onChange(depot.name);
+                          setOpen(false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            value === depot.name ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        {depot.name}
+                        <span className="ml-auto text-sm text-muted-foreground">
+                          {depot.type}
+                        </span>
+                      </CommandItem>
+                    ))}
+                </CommandGroup>
+              ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+};
 
 export function EditThirdPartyLoadDialog({
   open,
@@ -144,7 +229,6 @@ export function EditThirdPartyLoadDialog({
     },
   });
 
-  // Reset form when load changes
   useEffect(() => {
     if (load && open) {
       const times = parseTimeWindow(load.time_window);
@@ -181,7 +265,6 @@ export function EditThirdPartyLoadDialog({
       return;
     }
 
-    // Preserve existing backload data if present
     const existingTimeData = parseTimeWindow(load.time_window);
 
     const timeData = {
@@ -204,7 +287,6 @@ export function EditThirdPartyLoadDialog({
         linkedLoadId: existingTimeData.thirdParty?.linkedLoadId || null,
         linkedLoadNumber: existingTimeData.thirdParty?.linkedLoadNumber || null,
       },
-      // Preserve backload data
       backload: existingTimeData.backload,
     };
 
@@ -236,7 +318,6 @@ export function EditThirdPartyLoadDialog({
 
   if (!load) return null;
 
-  // Parse time window for linked load info
   const timeWindowData = parseTimeWindow(load.time_window);
   const linkedLoadNumber = timeWindowData.thirdParty?.linkedLoadNumber;
 
@@ -262,7 +343,7 @@ export function EditThirdPartyLoadDialog({
               onSubmit={form.handleSubmit(handleSubmit)}
               className="space-y-4"
             >
-              {/* Linked Load Info (Read-only) */}
+              {/* Linked Load Info */}
               {linkedLoadNumber && (
                 <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
                   <div className="flex items-center gap-2 text-purple-700 dark:text-purple-400">
@@ -459,7 +540,7 @@ export function EditThirdPartyLoadDialog({
               <div className="space-y-4 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800">
                 <h4 className="font-medium flex items-center gap-2 text-indigo-700 dark:text-indigo-400">
                   <MapPin className="h-4 w-4" />
-                  Loading Location
+                  Loading Depot
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
@@ -467,12 +548,9 @@ export function EditThirdPartyLoadDialog({
                     name="loadingPlaceName"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Place Name</FormLabel>
+                        <FormLabel>Depot</FormLabel>
                         <FormControl>
-                          <Input
-                            placeholder="e.g., Customer Warehouse"
-                            {...field}
-                          />
+                          <DepotCombobox value={field.value} onChange={field.onChange} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -485,7 +563,7 @@ export function EditThirdPartyLoadDialog({
                       <FormItem>
                         <FormLabel>Address (Optional)</FormLabel>
                         <FormControl>
-                          <Input placeholder="Full address" {...field} />
+                          <Input placeholder="Full address (overrides depot)" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -532,7 +610,7 @@ export function EditThirdPartyLoadDialog({
               <div className="space-y-4 p-4 bg-teal-50 dark:bg-teal-900/20 rounded-lg border border-teal-200 dark:border-teal-800">
                 <h4 className="font-medium flex items-center gap-2 text-teal-700 dark:text-teal-400">
                   <MapPin className="h-4 w-4" />
-                  Offloading Location
+                  Offloading Depot
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
@@ -540,9 +618,9 @@ export function EditThirdPartyLoadDialog({
                     name="offloadingPlaceName"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Place Name</FormLabel>
+                        <FormLabel>Depot</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g., Delivery Site" {...field} />
+                          <DepotCombobox value={field.value} onChange={field.onChange} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -555,7 +633,7 @@ export function EditThirdPartyLoadDialog({
                       <FormItem>
                         <FormLabel>Address (Optional)</FormLabel>
                         <FormControl>
-                          <Input placeholder="Full address" {...field} />
+                          <Input placeholder="Full address (overrides depot)" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -728,7 +806,6 @@ export function EditThirdPartyLoadDialog({
         </DialogContent>
       </Dialog>
 
-      {/* Create Customer Dialog */}
       <CreateClientDialog
         open={createClientDialogOpen}
         onOpenChange={setCreateClientDialogOpen}

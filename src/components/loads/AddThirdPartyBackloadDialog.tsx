@@ -34,31 +34,39 @@ import { generateLoadId, Load, useCreateLoad, useUpdateLoad } from '@/hooks/useL
 import { cn } from '@/lib/utils';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { format, parseISO } from 'date-fns';
-import { CalendarIcon, Clock, Loader2, MapPin, RotateCcw, Truck, UserPlus } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { CalendarIcon, Check, ChevronsUpDown, Clock, Loader2, MapPin, RotateCcw, Truck, UserPlus } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { CreateClientDialog } from './CreateClientDialog';
 
+// === DEPOTS IMPORT ===
+// Create a file at src/constants/depots.ts (or wherever you prefer) and paste the full DEPOTS code there.
+// Then adjust the path below if needed.
+import { DEPOTS } from '@/constants/depots'; // ← Change this path if you place the file elsewhere
+
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+
 const formSchema = z.object({
-  // Customer selection
   customerId: z.string().min(1, 'Customer is required'),
-  // Loading location (return pickup point)
-  loadingPlaceName: z.string().min(1, 'Loading place name is required'),
+  loadingPlaceName: z.string().min(1, 'Pickup depot is required'),
   loadingAddress: z.string().optional(),
-  // Offloading location (return destination)
-  offloadingPlaceName: z.string().min(1, 'Offloading place name is required'),
+  offloadingPlaceName: z.string().min(1, 'Destination depot is required'),
   offloadingAddress: z.string().optional(),
-  // Dates
   loadingDate: z.date({ required_error: 'Loading date is required' }),
   offloadingDate: z.date({ required_error: 'Offloading date is required' }),
-  // Time fields
   loadingPlannedArrival: z.string().min(1, 'Planned arrival time is required'),
   loadingPlannedDeparture: z.string().min(1, 'Planned departure time is required'),
   offloadingPlannedArrival: z.string().min(1, 'Planned arrival time is required'),
   offloadingPlannedDeparture: z.string().min(1, 'Planned departure time is required'),
-  // Cargo
   cargoDescription: z.string().min(1, 'Cargo description is required'),
   notes: z.string().optional(),
 });
@@ -71,7 +79,6 @@ interface AddThirdPartyBackloadDialogProps {
   load: Load | null;
 }
 
-// Parse existing time_window to get current data
 function parseTimeWindow(timeWindow: string) {
   try {
     const data = JSON.parse(timeWindow);
@@ -90,6 +97,80 @@ function parseTimeWindow(timeWindow: string) {
     };
   }
 }
+
+const DepotCombobox: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+}> = ({ value, onChange }) => {
+  const [open, setOpen] = useState(false);
+
+  const depotsByCountry = useMemo(() => {
+    const map: Record<string, typeof DEPOTS> = {};
+    DEPOTS.forEach((depot) => {
+      const key = depot.country;
+      if (!map[key]) map[key] = [];
+      map[key].push(depot);
+    });
+    return map;
+  }, []);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal"
+        >
+          {value
+            ? DEPOTS.find((depot) => depot.name === value)?.name ?? value
+            : 'Select a depot...'}
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-full p-0 max-w-[--radix-popover-trigger-width]">
+        <Command>
+          <CommandInput placeholder="Search depots..." />
+          <CommandList>
+            <CommandEmpty>No depot found.</CommandEmpty>
+            {Object.keys(depotsByCountry)
+              .sort()
+              .map((country) => (
+                <CommandGroup key={country} heading={country}>
+                  {depotsByCountry[country]
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((depot) => (
+                      <CommandItem
+                        key={depot.id}
+                        value={depot.name}
+                        onSelect={() => {
+                          onChange(depot.name);
+                          setOpen(false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            'mr-2 h-4 w-4',
+                            value === depot.name ? 'opacity-100' : 'opacity-0'
+                          )}
+                        />
+                        {depot.name}
+                        <span className="ml-auto text-sm text-muted-foreground">
+                          {depot.type}
+                        </span>
+                      </CommandItem>
+                   
+
+                    ))}
+                </CommandGroup>
+              ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+};
 
 export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThirdPartyBackloadDialogProps) {
   const [createClientDialogOpen, setCreateClientDialogOpen] = useState(false);
@@ -115,12 +196,10 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
     },
   });
 
-  // Reset form when load changes
   useEffect(() => {
     if (load && open) {
       const times = parseTimeWindow(load.time_window);
       
-      // Pre-fill with existing backload data if available
       if (times.backload?.enabled && times.backload?.isThirdParty) {
         const backload = times.backload;
         setIsEditMode(true);
@@ -140,12 +219,11 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
           notes: backload.notes || '',
         });
       } else {
-        // Default to same day as offloading date (or loading date if not available)
-        setIsEditMode(false);
+        setIsEditMode(false); // ← Fixed: removed the duplicate/typo line
         const defaultDate = load.offloading_date ? parseISO(load.offloading_date) : parseISO(load.loading_date);
         form.reset({
           customerId: '',
-          loadingPlaceName: load.destination, // Backload starts from original destination
+          loadingPlaceName: load.destination,
           loadingAddress: '',
           offloadingPlaceName: '',
           offloadingAddress: '',
@@ -171,10 +249,8 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
       return;
     }
 
-    // Parse existing time window data
     const existingTimeData = parseTimeWindow(load.time_window);
 
-    // Build time_window for the new third-party load
     const newLoadTimeWindow = {
       origin: {
         placeName: data.loadingPlaceName,
@@ -199,7 +275,6 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
       },
     };
 
-    // Create a new third-party load with TP- prefix
     createLoad.mutate(
       {
         load_id: generateLoadId('TP'),
@@ -209,7 +284,7 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
         time_window: JSON.stringify(newLoadTimeWindow),
         origin: data.loadingPlaceName,
         destination: data.offloadingPlaceName,
-        cargo_type: 'Retail', // Third-party loads use Retail type
+        cargo_type: 'Retail',
         quantity: 0,
         weight: 0,
         special_handling: [],
@@ -221,7 +296,6 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
       },
       {
         onSuccess: () => {
-          // Also update parent load to reference the backload
           const updatedTimeData = {
             ...existingTimeData,
             backload: {
@@ -410,11 +484,11 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
                 />
               </div>
 
-              {/* Loading Location (Backload pickup) */}
+              {/* Backload Pickup Depot */}
               <div className="space-y-3 p-4 bg-orange-50 dark:bg-orange-950/20 rounded-lg border border-orange-200 dark:border-orange-900">
                 <h4 className="font-medium flex items-center gap-2 text-orange-700 dark:text-orange-400">
                   <Truck className="h-4 w-4" />
-                  Backload Pickup Location
+                  Backload Pickup Depot
                 </h4>
                 <div className="grid grid-cols-2 gap-3">
                   <FormField
@@ -422,9 +496,9 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
                     name="loadingPlaceName"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Place Name</FormLabel>
+                        <FormLabel>Depot</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g., Customer Warehouse" {...field} />
+                          <DepotCombobox value={field.value} onChange={field.onChange} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -437,7 +511,7 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
                       <FormItem>
                         <FormLabel>Address (Optional)</FormLabel>
                         <FormControl>
-                          <Input placeholder="Full address" {...field} />
+                          <Input placeholder="Full address (overrides depot)" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -480,11 +554,11 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
                 </div>
               </div>
 
-              {/* Offloading Location (Backload destination) */}
+              {/* Backload Destination Depot */}
               <div className="space-y-3 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-900">
                 <h4 className="font-medium flex items-center gap-2 text-amber-700 dark:text-amber-400">
                   <MapPin className="h-4 w-4" />
-                  Backload Destination
+                  Backload Destination Depot
                 </h4>
                 <div className="grid grid-cols-2 gap-3">
                   <FormField
@@ -492,9 +566,9 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
                     name="offloadingPlaceName"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Place Name</FormLabel>
+                        <FormLabel>Depot</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g., Return Destination" {...field} />
+                          <DepotCombobox value={field.value} onChange={field.onChange} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -507,7 +581,7 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
                       <FormItem>
                         <FormLabel>Address (Optional)</FormLabel>
                         <FormControl>
-                          <Input placeholder="Full address" {...field} />
+                          <Input placeholder="Full address (overrides depot)" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -603,7 +677,6 @@ export function AddThirdPartyBackloadDialog({ open, onOpenChange, load }: AddThi
         </DialogContent>
       </Dialog>
 
-      {/* Create Customer Dialog */}
       <CreateClientDialog
         open={createClientDialogOpen}
         onOpenChange={setCreateClientDialogOpen}
