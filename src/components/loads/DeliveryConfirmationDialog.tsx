@@ -33,7 +33,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Load, useCreateLoad, useUpdateLoad } from '@/hooks/useLoads';
 import { getLocationDisplayName } from '@/lib/utils';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { addDays, format, parseISO } from 'date-fns';
+import { addDays, format, formatISO, parseISO } from 'date-fns';
 import { ArrowRight, CheckCircle, Clock, MapPin, RotateCcw, Truck } from 'lucide-react';
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
@@ -152,6 +152,14 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load, verificat
     return `BL-${originalLoadId.replace(/^LD-/, '')}-${timestamp}`;
   };
 
+  // Combine date and time to create ISO timestamp
+  const combineDateTime = (dateStr: string, timeStr: string) => {
+    const date = parseISO(dateStr);
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    date.setHours(hours, minutes, 0, 0);
+    return formatISO(date);
+  };
+
   const handleSubmit = async (data: FormData) => {
     if (!load) return;
 
@@ -174,11 +182,11 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load, verificat
     };
 
     // Prepare main fields for actual times (ISO string if date provided)
-    const mainFields: any = {};
-    if (data.originActualArrival) mainFields.actual_loading_arrival = data.originActualArrival;
-    if (data.originActualDeparture) mainFields.actual_loading_departure = data.originActualDeparture;
-    if (data.destActualArrival) mainFields.actual_offloading_arrival = data.destActualArrival;
-    if (data.destActualDeparture) mainFields.actual_offloading_departure = data.destActualDeparture;
+    const mainFields: Record<string, string | boolean> = {};
+    if (data.originActualArrival) mainFields.actual_loading_arrival = combineDateTime(load.loading_date, data.originActualArrival);
+    if (data.originActualDeparture) mainFields.actual_loading_departure = combineDateTime(load.loading_date, data.originActualDeparture);
+    if (data.destActualArrival) mainFields.actual_offloading_arrival = combineDateTime(load.offloading_date, data.destActualArrival);
+    if (data.destActualDeparture) mainFields.actual_offloading_departure = combineDateTime(load.offloading_date, data.destActualDeparture);
     // Mark as verified if provided
     if (data.originActualArrival) mainFields.actual_loading_arrival_verified = true;
     if (data.originActualDeparture) mainFields.actual_loading_departure_verified = true;
@@ -288,11 +296,11 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load, verificat
     };
 
     // Prepare main fields for actual times (ISO string if date provided)
-    const mainFields: any = {};
-    if (data.originActualArrival) mainFields.actual_loading_arrival = data.originActualArrival;
-    if (data.originActualDeparture) mainFields.actual_loading_departure = data.originActualDeparture;
-    if (data.destActualArrival) mainFields.actual_offloading_arrival = data.destActualArrival;
-    if (data.destActualDeparture) mainFields.actual_offloading_departure = data.destActualDeparture;
+    const mainFields: Record<string, string | boolean> = {};
+    if (data.originActualArrival) mainFields.actual_loading_arrival = combineDateTime(load.loading_date, data.originActualArrival);
+    if (data.originActualDeparture) mainFields.actual_loading_departure = combineDateTime(load.loading_date, data.originActualDeparture);
+    if (data.destActualArrival) mainFields.actual_offloading_arrival = combineDateTime(load.offloading_date, data.destActualArrival);
+    if (data.destActualDeparture) mainFields.actual_offloading_departure = combineDateTime(load.offloading_date, data.destActualDeparture);
     // Mark as verified if provided
     if (data.originActualArrival) mainFields.actual_loading_arrival_verified = true;
     if (data.originActualDeparture) mainFields.actual_loading_departure_verified = true;
