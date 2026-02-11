@@ -103,13 +103,20 @@ export const DEPOTS: Depot[] = [
  */
 export function findDepotByName(name: string): Depot | null {
   if (!name) return null;
-
   const normalizedName = name.toLowerCase().trim();
-
+  // Canonical aliases for depots
+  const depotAliases: Record<string, string> = {
+    'bulawayo': 'Bulawayo Depot',
+    'bulawayo depot': 'Bulawayo Depot',
+    'rezende': 'Rezende Depot',
+    'rezende depot': 'Rezende Depot',
+  };
+  if (depotAliases[normalizedName]) {
+    return DEPOTS.find((d) => d.name === depotAliases[normalizedName]) || null;
+  }
   // Try exact match first
   let depot = DEPOTS.find((d) => d.name.toLowerCase() === normalizedName);
   if (depot) return depot;
-
   // Try partial match
   depot = DEPOTS.find(
     (d) =>
@@ -117,14 +124,12 @@ export function findDepotByName(name: string): Depot | null {
       normalizedName.includes(d.name.toLowerCase())
   );
   if (depot) return depot;
-
   // Try matching key words
   const words = normalizedName.split(/[\s,]+/).filter((w) => w.length > 2);
   for (const word of words) {
     depot = DEPOTS.find((d) => d.name.toLowerCase().includes(word));
     if (depot) return depot;
   }
-
   return null;
 }
 

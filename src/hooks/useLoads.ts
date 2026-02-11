@@ -1,3 +1,45 @@
+// Manual/verified time update mutation
+export function useUpdateLoadTimes() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      times
+    }: {
+      id: string;
+      times: Partial<{
+        actual_loading_arrival: string;
+        actual_loading_arrival_verified: boolean;
+        actual_loading_arrival_source: 'auto' | 'manual';
+        actual_loading_departure: string;
+        actual_loading_departure_verified: boolean;
+        actual_loading_departure_source: 'auto' | 'manual';
+        actual_offloading_arrival: string;
+        actual_offloading_arrival_verified: boolean;
+        actual_offloading_arrival_source: 'auto' | 'manual';
+        actual_offloading_departure: string;
+        actual_offloading_departure_verified: boolean;
+        actual_offloading_departure_source: 'auto' | 'manual';
+      }>;
+    }) => {
+      const { data, error } = await supabase
+        .from('loads')
+        .update(times)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['loads'] });
+      toast({ title: 'Load times updated successfully' });
+    },
+    onError: (error) => {
+      toast({ title: 'Failed to update load times', description: error.message, variant: 'destructive' });
+    },
+  });
+}
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Database } from '@/integrations/supabase/types';
@@ -44,9 +86,17 @@ export interface Load {
   updated_at: string;
   // Actual geofence-triggered times
   actual_loading_arrival?: string | null;
+  actual_loading_arrival_verified?: boolean;
+  actual_loading_arrival_source?: 'auto' | 'manual';
   actual_loading_departure?: string | null;
+  actual_loading_departure_verified?: boolean;
+  actual_loading_departure_source?: 'auto' | 'manual';
   actual_offloading_arrival?: string | null;
+  actual_offloading_arrival_verified?: boolean;
+  actual_offloading_arrival_source?: 'auto' | 'manual';
   actual_offloading_departure?: string | null;
+  actual_offloading_departure_verified?: boolean;
+  actual_offloading_departure_source?: 'auto' | 'manual';
   // Joined data
   driver?: { id: string; name: string; contact: string } | null;
   fleet_vehicle?: { id: string; vehicle_id: string; type: string; telematics_asset_id?: string | null } | null;

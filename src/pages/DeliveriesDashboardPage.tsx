@@ -242,10 +242,10 @@ export default function DeliveriesDashboardPage() {
   }, [fetchTelematicsData, autoRefresh]);
 
   const loadsWithETA: LoadWithETA[] = useMemo(() => {
+    // Map loads to assets and compute isAtLoadOrigin
     const loadsWithAssets = loads.map((load) => {
       const vehicle = load.fleet_vehicle;
       const telematicsAssetId = vehicle?.telematics_asset_id;
-
       let telematicsAsset: TelematicsAsset | null = null;
       if (telematicsAssetId) {
         telematicsAsset =
@@ -264,7 +264,6 @@ export default function DeliveriesDashboardPage() {
               a.displayName?.includes(vehicle.vehicle_id)
           ) || null;
       }
-
       const originDepot = findDepotByName(load.origin);
       let isAtLoadOrigin = false;
       if (originDepot && telematicsAsset?.lastLatitude && telematicsAsset?.lastLongitude) {
@@ -274,7 +273,6 @@ export default function DeliveriesDashboardPage() {
           originDepot
         );
       }
-
       return {
         ...load,
         telematicsAsset,
@@ -284,50 +282,47 @@ export default function DeliveriesDashboardPage() {
           : undefined,
       };
     });
-
-    const loadsByVehicle = new Map<string, typeof loadsWithAssets>();
+    // Only the earliest scheduled load at a given origin for a vehicle is considered active
+    const loadsByVehicleOrigin = new Map<string, LoadWithETA[]>();
     for (const load of loadsWithAssets) {
       const vehicleId = load.fleet_vehicle?.vehicle_id || "unassigned";
-      if (!loadsByVehicle.has(vehicleId)) {
-        loadsByVehicle.set(vehicleId, []);
+      const originKey = `${vehicleId}::${load.origin}`;
+      if (!loadsByVehicleOrigin.has(originKey)) {
+        loadsByVehicleOrigin.set(originKey, []);
       }
-      loadsByVehicle.get(vehicleId)!.push(load);
+      loadsByVehicleOrigin.get(originKey)!.push(load);
     }
-
     const currentLoadByVehicle = new Map<string, string>();
-    for (const [vehicleId, vehicleLoads] of loadsByVehicle) {
+    for (const [originKey, vehicleLoads] of loadsByVehicleOrigin) {
+      // Sort by loading_date
       const sortedLoads = [...vehicleLoads].sort(
         (a, b) => parseISO(a.loading_date).getTime() - parseISO(b.loading_date).getTime()
       );
+      // Find in-transit load first
       const inTransitLoad = sortedLoads.find((l) => l.status === "in-transit");
       if (inTransitLoad) {
-        currentLoadByVehicle.set(vehicleId, inTransitLoad.id);
+        currentLoadByVehicle.set(originKey, inTransitLoad.id);
       } else {
-        const atOriginLoad = sortedLoads.find(
-          (l) => l.status === "scheduled" && l.isAtLoadOrigin
-        );
-        if (atOriginLoad) {
-          currentLoadByVehicle.set(vehicleId, atOriginLoad.id);
+        // Only the earliest scheduled load at this origin is active
+        const scheduledLoads = sortedLoads.filter((l) => l.status === "scheduled");
+        if (scheduledLoads.length > 0) {
+          currentLoadByVehicle.set(originKey, scheduledLoads[0].id);
         }
       }
     }
-
     return loadsWithAssets.map((load) => {
       const vehicleId = load.fleet_vehicle?.vehicle_id || "unassigned";
-      const currentLoadId = currentLoadByVehicle.get(vehicleId);
+      const originKey = `${vehicleId}::${load.origin}`;
+      const currentLoadId = currentLoadByVehicle.get(originKey);
       const isCurrentLoad = currentLoadId === load.id;
       const isInTransit = load.status === "in-transit";
       const isTrackingActive = isInTransit || (isCurrentLoad && load.isAtLoadOrigin);
-
       let progressData = null;
       let truckPosition = null;
-
       const originDepot = findDepotByName(load.origin);
       const destDepot = findDepotByName(load.destination);
-
       if (originDepot && destDepot) {
         const telematicsAsset = load.telematicsAsset;
-
         if (telematicsAsset?.lastLatitude && telematicsAsset?.lastLongitude) {
           truckPosition = {
             latitude: telematicsAsset.lastLatitude,
@@ -339,7 +334,6 @@ export default function DeliveriesDashboardPage() {
               : "Unknown",
             isMoving: telematicsAsset.speedKmH > 5,
           };
-
           if (isTrackingActive) {
             const tripProgress = calculateDepotTripProgress(
               originDepot,
@@ -349,7 +343,6 @@ export default function DeliveriesDashboardPage() {
             );
             const speed = telematicsAsset.speedKmH > 10 ? telematicsAsset.speedKmH : 60;
             const eta = calculateDepotETA(tripProgress.distanceRemaining, speed);
-
             progressData = {
               progress: tripProgress.progress,
               totalDistance: tripProgress.totalDistance,
@@ -371,7 +364,6 @@ export default function DeliveriesDashboardPage() {
               originDepot.longitude
             );
             const eta = calculateDepotETA(tripProgress.totalDistance, 60);
-
             progressData = {
               progress: 0,
               totalDistance: tripProgress.totalDistance,
@@ -388,7 +380,6 @@ export default function DeliveriesDashboardPage() {
           }
         }
       }
-
       return {
         ...load,
         progressData,

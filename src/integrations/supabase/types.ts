@@ -212,6 +212,14 @@ export type Database = {
           time_window: string;
           updated_at: string;
           weight: number;
+          actual_loading_arrival_verified: boolean;
+          actual_loading_departure_verified: boolean;
+          actual_offloading_arrival_verified: boolean;
+          actual_offloading_departure_verified: boolean;
+          actual_loading_arrival_source: 'auto' | 'manual';
+          actual_loading_departure_source: 'auto' | 'manual';
+          actual_offloading_arrival_source: 'auto' | 'manual';
+          actual_offloading_departure_source: 'auto' | 'manual';
         };
         Insert: {
           cargo_type: Database["public"]["Enums"]["cargo_type"];
@@ -233,6 +241,14 @@ export type Database = {
           time_window: string;
           updated_at?: string;
           weight?: number;
+          actual_loading_arrival_verified?: boolean;
+          actual_loading_departure_verified?: boolean;
+          actual_offloading_arrival_verified?: boolean;
+          actual_offloading_departure_verified?: boolean;
+          actual_loading_arrival_source?: 'auto' | 'manual';
+          actual_loading_departure_source?: 'auto' | 'manual';
+          actual_offloading_arrival_source?: 'auto' | 'manual';
+          actual_offloading_departure_source?: 'auto' | 'manual';
         };
         Update: {
           cargo_type?: Database["public"]["Enums"]["cargo_type"];
@@ -254,6 +270,14 @@ export type Database = {
           time_window?: string;
           updated_at?: string;
           weight?: number;
+          actual_loading_arrival_verified?: boolean;
+          actual_loading_departure_verified?: boolean;
+          actual_offloading_arrival_verified?: boolean;
+          actual_offloading_departure_verified?: boolean;
+          actual_loading_arrival_source?: 'auto' | 'manual';
+          actual_loading_departure_source?: 'auto' | 'manual';
+          actual_offloading_arrival_source?: 'auto' | 'manual';
+          actual_offloading_departure_source?: 'auto' | 'manual';
         };
         Relationships: [
           {

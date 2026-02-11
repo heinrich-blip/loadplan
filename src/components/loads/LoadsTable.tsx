@@ -29,6 +29,7 @@ import
     TableRow,
   } from "@/components/ui/table";
 import { Load, useDeleteLoad } from "@/hooks/useLoads";
+import { AlterLoadTimesDialog } from "./AlterLoadTimesDialog";
 import { exportLoadToPdf } from "@/lib/exportLoadToPdf";
 import { cn, getLocationDisplayName } from "@/lib/utils";
 import { format, isToday, isTomorrow, isYesterday, parseISO } from "date-fns";
@@ -162,6 +163,50 @@ export function LoadsTable({
     useState(false);
   const [loadForThirdPartyBackload, setLoadForThirdPartyBackload] =
     useState<Load | null>(null);
+  const [alterDialogOpen, setAlterDialogOpen] = useState(false);
+  const [loadToAlter, setLoadToAlter] = useState<Load | null>(null);
+    // Helper: check if any actual time is missing or unverified
+    function needsVerification(load: Load) {
+      return (
+        !load.actual_loading_arrival || !load.actual_loading_arrival_verified ||
+        !load.actual_loading_departure || !load.actual_loading_departure_verified ||
+        !load.actual_offloading_arrival || !load.actual_offloading_arrival_verified ||
+        !load.actual_offloading_departure || !load.actual_offloading_departure_verified
+      );
+    }
+
+    // Quick Add handler: set current time for missing fields
+    function handleQuickAdd(load: Load) {
+      const now = new Date();
+      const times: any = {};
+      if (!load.actual_loading_arrival) {
+        times.actual_loading_arrival = now.toISOString();
+        times.actual_loading_arrival_verified = true;
+        times.actual_loading_arrival_source = 'manual';
+      }
+      if (!load.actual_loading_departure) {
+        times.actual_loading_departure = now.toISOString();
+        times.actual_loading_departure_verified = true;
+        times.actual_loading_departure_source = 'manual';
+      }
+      if (!load.actual_offloading_arrival) {
+        times.actual_offloading_arrival = now.toISOString();
+        times.actual_offloading_arrival_verified = true;
+        times.actual_offloading_arrival_source = 'manual';
+      }
+      if (!load.actual_offloading_departure) {
+        times.actual_offloading_departure = now.toISOString();
+        times.actual_offloading_departure_verified = true;
+        times.actual_offloading_departure_source = 'manual';
+      }
+      if (Object.keys(times).length > 0) {
+        // Use the update hook
+        import("@/hooks/useLoads").then(({ useUpdateLoadTimes }) => {
+          const update = useUpdateLoadTimes();
+          update.mutate({ id: load.id, times });
+        });
+      }
+    }
   const deleteLoad = useDeleteLoad();
 
   const handleDeleteClick = (e: React.MouseEvent, load: Load) => {
@@ -315,7 +360,7 @@ export function LoadsTable({
                     <TableHead className="font-semibold">Cargo</TableHead>
                     <TableHead className="font-semibold">Assignment</TableHead>
                     <TableHead className="font-semibold">Status</TableHead>
-                    <TableHead className="font-semibold w-[80px]">
+                    <TableHead className="font-semibold w-[120px]">
                       Actions
                     </TableHead>
                   </TableRow>
@@ -332,6 +377,9 @@ export function LoadsTable({
                       onClick={() => onLoadClick?.(load)}
                     >
                       <TableCell>
+                        {needsVerification(load) && (
+                          <Badge variant="destructive" className="mb-1">Needs Verification</Badge>
+                        )}
                         <div>
                           <p className="font-semibold text-foreground">
                             {load.load_id}
@@ -444,48 +492,56 @@ export function LoadsTable({
                                             {backload.cargoType}
                                           </Badge>
                                         )}
-                                        {backload.thirdParty?.customerName && (
-                                          <Badge
-                                            variant="outline"
-                                            className="text-[10px] px-1.5 py-0 h-4 bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/40 dark:text-amber-400 dark:border-amber-700"
-                                          >
-                                            {backload.thirdParty.customerName}
-                                          </Badge>
-                                        )}
-                                      </div>
-                                      <div className="flex items-center gap-1 text-sm">
-                                        {/* Handle both string and object destination formats */}
-                                        {backload.isThirdParty &&
-                                        backload.origin?.placeName ? (
+                                        <TableCell>
+                                          <div className="flex items-center gap-2">
+                                            <DropdownMenu>
+                                              <DropdownMenuTrigger asChild>
+                                                <Button variant="ghost" size="icon">
+                                                  <MoreHorizontal className="h-4 w-4" />
+                                                </Button>
+                                              </DropdownMenuTrigger>
+                                              <DropdownMenuContent align="end">
+                                                <DropdownMenuItem onClick={(e) => handleEditClick(e, load)}>
+                                                  <Pencil className="h-4 w-4 mr-2" /> Edit
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={(e) => handleTrackClick(e, load)}>
+                                                  <Navigation className="h-4 w-4 mr-2" /> Track
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={(e) => handleDeliveryClick(e, load)}>
+                                                  <CheckCircle className="h-4 w-4 mr-2" /> Confirm Delivery
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={(e) => handleBackloadClick(e, load)}>
+                                                  <RotateCcw className="h-4 w-4 mr-2" /> Add Backload
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={(e) => handleExportPdf(e, load)}>
+                                                  <FileDown className="h-4 w-4 mr-2" /> Export PDF
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => { setLoadToAlter(load); setAlterDialogOpen(true); }}>
+                                                  <Calendar className="h-4 w-4 mr-2" /> Alter Times
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => handleQuickAdd(load)}>
+                                                  <CheckCircle className="h-4 w-4 mr-2" /> Quick Add Times
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={(e) => handleDeleteClick(e, load)}>
+                                                  <Trash2 className="h-4 w-4 mr-2" /> Delete
+                                                </DropdownMenuItem>
+                                              </DropdownMenuContent>
+                                            </DropdownMenu>
+                                          </div>
+                                          {alterDialogOpen && loadToAlter?.id === load.id && (
+                                            <div>
+                                              <AlterLoadTimesDialog open={alterDialogOpen} onOpenChange={setAlterDialogOpen} load={loadToAlter} />
+                                            </div>
+                                          )}
+                                        </TableCell>
+                                        {!backload.cargoType && (
                                           <>
                                             <span className="text-muted-foreground">
-                                              {getLocationDisplayName(
-                                                backload.origin,
-                                              )}
+                                              {getLocationDisplayName(load.destination)}
                                             </span>
-                                            <span className="text-orange-500 font-medium">
-                                              →
-                                            </span>
+                                            <span className="text-orange-500 font-medium">→</span>
                                             <span className="font-medium text-orange-700 dark:text-orange-300">
-                                              {getLocationDisplayName(
-                                                backload.destination,
-                                              )}
-                                            </span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <span className="text-muted-foreground">
-                                              {getLocationDisplayName(
-                                                load.destination,
-                                              )}
-                                            </span>
-                                            <span className="text-orange-500 font-medium">
-                                              →
-                                            </span>
-                                            <span className="font-medium text-orange-700 dark:text-orange-300">
-                                              {getLocationDisplayName(
-                                                backload.destination,
-                                              )}
+                                              {getLocationDisplayName(backload.destination)}
                                             </span>
                                           </>
                                         )}
