@@ -172,10 +172,12 @@ export function LoadsTable({
     // Helper: check if any actual time is missing or unverified
     function needsVerification(load: Load) {
       return (
-        !load.actual_loading_arrival || !load.actual_loading_arrival_verified ||
-        !load.actual_loading_departure || !load.actual_loading_departure_verified ||
-        !load.actual_offloading_arrival || !load.actual_offloading_arrival_verified ||
-        !load.actual_offloading_departure || !load.actual_offloading_departure_verified
+        load.status === 'delivered' && (
+          !load.actual_loading_arrival || !load.actual_loading_arrival_verified ||
+          !load.actual_loading_departure || !load.actual_loading_departure_verified ||
+          !load.actual_offloading_arrival || !load.actual_offloading_arrival_verified ||
+          !load.actual_offloading_departure || !load.actual_offloading_departure_verified
+        )
       );
     }
 
@@ -563,9 +565,11 @@ export function LoadsTable({
                                                 <DropdownMenuItem onClick={() => { setLoadToAlter(load); setAlterDialogOpen(true); }}>
                                                   <Calendar className="h-4 w-4 mr-2" /> Alter Times
                                                 </DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => handleQuickAdd(load)}>
-                                                  <CheckCircle className="h-4 w-4 mr-2" /> Quick Add Times
-                                                </DropdownMenuItem>
+                                                {load.status === 'delivered' && (
+                                                  <DropdownMenuItem onClick={() => handleQuickAdd(load)}>
+                                                    <CheckCircle className="h-4 w-4 mr-2" /> Quick Add Times
+                                                  </DropdownMenuItem>
+                                                )}
                                                 <DropdownMenuItem onClick={(e) => handleDeleteClick(e, load)}>
                                                   <Trash2 className="h-4 w-4 mr-2" /> Delete
                                                 </DropdownMenuItem>
