@@ -39,19 +39,16 @@ interface StatusDistribution {
 interface RouteData {
   route: string;
   loads: number;
-  weight: number;
 }
 
 interface DayOfWeekData {
   day: string;
   loads: number;
-  avgWeight: number;
 }
 
 interface MonthlyTrend {
   month: string;
   loads: number;
-  totalWeight: number;
 }
 
 const CARGO_LABELS: Record<string, string> = {
@@ -119,14 +116,14 @@ function calculateStatusDistribution(loads: Load[]): StatusDistribution[] {
 }
 
 function calculateTopRoutes(loads: Load[]): RouteData[] {
-  const routes: Record<string, { loads: number; weight: number }> = {};
+  const routes: Record<string, { loads: number }> = {};
   loads.forEach((load) => {
     const route = `${load.origin} → ${load.destination}`;
     if (!routes[route]) {
-      routes[route] = { loads: 0, weight: 0 };
+      routes[route] = { loads: 0 };
     }
     routes[route].loads += 1;
-    routes[route].weight += load.weight || 0;
+    // weight removed
   });
   return Object.entries(routes)
     .map(([route, data]) => ({ route, ...data }))
@@ -144,25 +141,22 @@ function calculateDayOfWeekDistribution(loads: Load[]): DayOfWeekData[] {
     "Friday",
     "Saturday",
   ];
-  const dayData: Record<number, { loads: number; totalWeight: number }> = {};
+  const dayData: Record<number, { loads: number }> = {};
 
   loads.forEach((load) => {
     const loadDate = parseISO(load.loading_date);
     const day = getDay(loadDate);
     if (!dayData[day]) {
-      dayData[day] = { loads: 0, totalWeight: 0 };
+      dayData[day] = { loads: 0 };
     }
     dayData[day].loads += 1;
-    dayData[day].totalWeight += load.weight || 0;
+    // weight removed
   });
 
   return days.map((day, index) => ({
     day,
     loads: dayData[index]?.loads || 0,
-    avgWeight:
-      dayData[index] && dayData[index].loads > 0
-        ? Math.round(dayData[index].totalWeight / dayData[index].loads)
-        : 0,
+    // avg weight removed
   }));
 }
 
@@ -188,7 +182,6 @@ function calculateMonthlyTrend(
     months.push({
       month: format(monthDate, "MMM yyyy"),
       loads: monthLoads.length,
-      totalWeight: monthLoads.reduce((sum, l) => sum + (l.weight || 0), 0),
     });
   }
 
@@ -197,10 +190,7 @@ function calculateMonthlyTrend(
 
 function calculateSummaryStats(loads: Load[]) {
   const totalLoads = loads.length;
-  const totalWeight = loads.reduce((sum, l) => sum + (l.weight || 0), 0);
   const deliveredCount = loads.filter((l) => l.status === "delivered").length;
-  const avgWeightPerLoad =
-    totalLoads > 0 ? Math.round(totalWeight / totalLoads) : 0;
   const deliveryRate =
     totalLoads > 0 ? Math.round((deliveredCount / totalLoads) * 100) : 0;
   const uniqueRoutes = new Set(loads.map((l) => `${l.origin}-${l.destination}`))
@@ -208,8 +198,6 @@ function calculateSummaryStats(loads: Load[]) {
 
   return {
     totalLoads,
-    totalWeight,
-    avgWeightPerLoad,
     deliveryRate,
     uniqueRoutes,
   };
@@ -267,8 +255,6 @@ export function exportReportsToPdf({
   // Summary cards
   const summaryData = [
     ["Total Loads", stats.totalLoads.toString()],
-    ["Total Weight", `${stats.totalWeight.toLocaleString()} kg`],
-    ["Avg Weight/Load", `${stats.avgWeightPerLoad.toLocaleString()} kg`],
     ["Delivery Rate", `${stats.deliveryRate}%`],
     ["Unique Routes", stats.uniqueRoutes.toString()],
   ];
@@ -401,11 +387,10 @@ export function exportReportsToPdf({
 
     autoTable(doc, {
       startY: yPos,
-      head: [["Route", "Loads", "Total Weight (kg)"]],
+      head: [["Route", "Loads"]],
       body: topRoutes.map((r) => [
         r.route,
         r.loads.toString(),
-        r.weight.toLocaleString(),
       ]),
       theme: "grid",
       headStyles: {
@@ -420,9 +405,8 @@ export function exportReportsToPdf({
       },
       alternateRowStyles: { fillColor: [249, 250, 251] },
       columnStyles: {
-        0: { cellWidth: 100 },
-        1: { cellWidth: 30, halign: "center" },
-        2: { cellWidth: 45, halign: "right" },
+        0: { cellWidth: 120 },
+        1: { cellWidth: 40, halign: "center" },
       },
       margin: { left: 15, right: 15 },
     });
@@ -448,11 +432,10 @@ export function exportReportsToPdf({
 
     autoTable(doc, {
       startY: yPos,
-      head: [["Day", "Total Loads", "Avg Weight (kg)"]],
+      head: [["Day", "Total Loads"]],
       body: dayDist.map((d) => [
         d.day,
         d.loads.toString(),
-        d.avgWeight.toLocaleString(),
       ]),
       theme: "grid",
       headStyles: {
@@ -467,9 +450,8 @@ export function exportReportsToPdf({
       },
       alternateRowStyles: { fillColor: [249, 250, 251] },
       columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 50 },
-        1: { cellWidth: 40, halign: "center" },
-        2: { cellWidth: 50, halign: "right" },
+        0: { fontStyle: "bold", cellWidth: 60 },
+        1: { cellWidth: 60, halign: "center" },
       },
       margin: { left: 15, right: 15 },
       tableWidth: 140,
@@ -496,11 +478,10 @@ export function exportReportsToPdf({
 
     autoTable(doc, {
       startY: yPos,
-      head: [["Month", "Total Loads", "Total Weight (kg)"]],
+      head: [["Month", "Total Loads"]],
       body: monthlyTrend.map((m) => [
         m.month,
         m.loads.toString(),
-        m.totalWeight.toLocaleString(),
       ]),
       theme: "grid",
       headStyles: {
@@ -515,9 +496,8 @@ export function exportReportsToPdf({
       },
       alternateRowStyles: { fillColor: [249, 250, 251] },
       columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 50 },
-        1: { cellWidth: 40, halign: "center" },
-        2: { cellWidth: 50, halign: "right" },
+        0: { fontStyle: "bold", cellWidth: 60 },
+        1: { cellWidth: 60, halign: "center" },
       },
       margin: { left: 15, right: 15 },
       tableWidth: 140,
@@ -551,6 +531,208 @@ export function exportReportsToPdf({
   const filename = `LoadFlow_${reportTypeLabel}_Report_${format(new Date(), "yyyy-MM-dd")}.pdf`;
 
   doc.save(filename);
+}
+
+// Compact variance PDF (daily/weekly + top delays by origin/destination)
+export function exportVarianceToPdf(loads: Load[], timeRange: ReportOptions["timeRange"] = "3months"): void {
+  const filteredLoads = getFilteredLoads(loads, timeRange);
+  const doc = new jsPDF();
+  const primary: [number, number, number] = [99, 102, 241];
+  const text: [number, number, number] = [55, 65, 81];
+  const reportDate = format(new Date(), "MMMM d, yyyy");
+
+  // Header
+  doc.setFillColor(...primary);
+  doc.rect(0, 0, 220, 28, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16);
+  doc.text("Punctuality Variance Report", 14, 18);
+  doc.setFontSize(10);
+  doc.text(`Generated: ${reportDate}`, 14, 24);
+
+  // Helpers
+  const parseTW = (tw: string) => {
+    try {
+      const d = JSON.parse(tw);
+      return {
+        o: { pa: d.origin?.plannedArrival||"", pd: d.origin?.plannedDeparture||"", aa: d.origin?.actualArrival||"", ad: d.origin?.actualDeparture||"" },
+        t: { pa: d.destination?.plannedArrival||"", pd: d.destination?.plannedDeparture||"", aa: d.destination?.actualArrival||"", ad: d.destination?.actualDeparture||"" },
+      };
+    } catch { return null; }
+  };
+  const varMin = (p: string, a: string) => {
+    try {
+      const A = (s: string): Date | null => {
+        const iso = new Date(s); if (!isNaN(iso.getTime())) return iso;
+        const m = s.match(/^(\d{1,2}):(\d{2})$/); if (m){const d=new Date();d.setHours(parseInt(m[1]),parseInt(m[2]),0,0);return d;}
+        const am = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i); if(am){const d=new Date();let h=parseInt(am[1]);const mins=parseInt(am[2]);const per=am[3].toUpperCase();if(per==='PM'&&h!==12)h+=12; if(per==='AM'&&h===12)h=0; d.setHours(h,mins,0,0);return d;}
+        return null;
+      };
+      const P=A(p); const B=A(a); if(!P||!B) return null; return Math.round((B.getTime()-P.getTime())/(60*1000));
+    } catch { return null; }
+  };
+
+  // Daily summary
+  const byDay = new Map<string,{loads:number,oa:number;oaN:number;od:number;odN:number;da:number;daN:number;dd:number;ddN:number;oLate:number;dLate:number}>();
+  for (const l of filteredLoads){
+    const k=format(parseISO(l.loading_date),"yyyy-MM-dd");
+    const tw=parseTW(l.time_window); if(!tw) continue;
+    const oa=varMin(tw.o.pa,tw.o.aa); const od=varMin(tw.o.pd,tw.o.ad); const da=varMin(tw.t.pa,tw.t.aa); const dd=varMin(tw.t.pd,tw.t.ad);
+    if(!byDay.has(k)) byDay.set(k,{loads:0,oa:0,oaN:0,od:0,odN:0,da:0,daN:0,dd:0,ddN:0,oLate:0,dLate:0});
+    const a=byDay.get(k)!; a.loads++;
+    if(oa!==null){a.oa+=oa;a.oaN++; if(oa>15)a.oLate++;}
+    if(od!==null){a.od+=od;a.odN++; if(od>15)a.oLate++;}
+    if(da!==null){a.da+=da;a.daN++; if(da>15)a.dLate++;}
+    if(dd!==null){a.dd+=dd;a.ddN++; if(dd>15)a.dLate++;}
+  }
+  const dailyRows = Array.from(byDay.entries()).sort((a,b)=>a[0].localeCompare(b[0])).map(([date,v])=>[
+    date, v.loads,
+    v.oaN?Math.round(v.oa/v.oaN):"-",
+    v.odN?Math.round(v.od/v.odN):"-",
+    v.daN?Math.round(v.da/v.daN):"-",
+    v.ddN?Math.round(v.dd/v.ddN):"-",
+    v.oLate, v.dLate,
+  ]);
+
+  autoTable(doc,{
+    startY: 34,
+    head: [["Date","Loads","Avg OA","Avg OD","Avg DA","Avg DD","Origin Late","Dest Late"]],
+    body: dailyRows,
+    theme: "grid",
+    headStyles:{ fillColor: primary, textColor:[255,255,255], fontStyle:"bold", fontSize:9 },
+    bodyStyles:{ textColor: text, fontSize:9},
+    alternateRowStyles:{ fillColor:[249,250,251] },
+    margin:{ left: 12, right: 12 },
+  });
+
+  // Delays by Origin/Destination (top 10)
+  const originSums: Record<string, number> = {}; const destSums: Record<string, number> = {};
+  for (const l of filteredLoads){
+    const tw=parseTW(l.time_window); if(!tw) continue;
+    const oa=varMin(tw.o.pa,tw.o.aa); const od=varMin(tw.o.pd,tw.o.ad); const da=varMin(tw.t.pa,tw.t.aa); const dd=varMin(tw.t.pd,tw.t.ad);
+    const add=(m:Record<string,number>,k:string,v:number|null)=>{ if(v!==null&&v>15) m[k]=(m[k]||0)+v; };
+    add(originSums,l.origin,oa); add(originSums,l.origin,od);
+    add(destSums,l.destination,da); add(destSums,l.destination,dd);
+  }
+  const topO = Object.entries(originSums).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([k,v])=>[k,v]);
+  const topD = Object.entries(destSums).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([k,v])=>[k,v]);
+
+  let y = (doc as jsPDFWithAutoTable).lastAutoTable?.finalY ? (doc as jsPDFWithAutoTable).lastAutoTable.finalY + 10 : 34;
+  if (y > 230) { doc.addPage(); y = 20; }
+  doc.setTextColor(...primary); doc.setFontSize(12); doc.text("Delays by Origin (Total Minutes)", 12, y);
+  y += 4;
+  autoTable(doc,{
+    startY: y,
+    head: [["Origin","Total Delay (min)"]],
+    body: topO,
+    theme: "grid",
+    headStyles:{ fillColor: [234,179,8], textColor:[0,0,0], fontStyle:"bold", fontSize:9 },
+    bodyStyles:{ textColor: text, fontSize:9 },
+    margin:{ left: 12, right: 12 },
+    tableWidth: 90,
+  });
+
+  y = (doc as jsPDFWithAutoTable).lastAutoTable.finalY + 6;
+  if (y > 230) { doc.addPage(); y = 20; }
+  doc.setTextColor(...primary); doc.setFontSize(12); doc.text("Delays by Destination (Total Minutes)", 12, y);
+  y += 4;
+  autoTable(doc,{
+    startY: y,
+    head: [["Destination","Total Delay (min)"]],
+    body: topD,
+    theme: "grid",
+    headStyles:{ fillColor: [34,197,94], textColor:[0,0,0], fontStyle:"bold", fontSize:9 },
+    bodyStyles:{ textColor: text, fontSize:9 },
+    margin:{ left: 12, right: 12 },
+    tableWidth: 110,
+  });
+
+  doc.save(`variance-report-${format(new Date(), "yyyy-MM-dd")}.pdf`);
+}
+
+
+// Punctuality details PDF (duplicates Excel details: per-load planned vs actual with variances)
+export function exportPunctualityToPdf(loads: Load[], timeRange: ReportOptions["timeRange"] = "3months"): void {
+  const filteredLoads = getFilteredLoads(loads, timeRange);
+  const doc = new jsPDF();
+  const primary: [number, number, number] = [99, 102, 241];
+  const text: [number, number, number] = [55, 65, 81];
+  const reportDate = format(new Date(), "MMMM d, yyyy");
+
+  // Header
+  doc.setFillColor(...primary);
+  doc.rect(0, 0, 220, 28, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16);
+  doc.text("Punctuality Details (Planned vs Actual)", 14, 18);
+  doc.setFontSize(10);
+  doc.text(`Generated: ${reportDate}`, 14, 24);
+
+  const parseTW = (tw: string) => {
+    try {
+      const d = JSON.parse(tw || "{}");
+      return {
+        o: { pa: d.origin?.plannedArrival||"", pd: d.origin?.plannedDeparture||"", aa: d.origin?.actualArrival||"", ad: d.origin?.actualDeparture||"" },
+        t: { pa: d.destination?.plannedArrival||"", pd: d.destination?.plannedDeparture||"", aa: d.destination?.actualArrival||"", ad: d.destination?.actualDeparture||"" },
+      };
+    } catch { return null; }
+  };
+  const varMin = (p?: string, a?: string) => {
+    if (!p || !a) return "";
+    try {
+      const A = (s: string): Date | null => {
+        const iso = new Date(s); if (!isNaN(iso.getTime())) return iso;
+        const m = s.match(/^(\d{1,2}):(\d{2})$/); if (m){const d=new Date();d.setHours(parseInt(m[1]),parseInt(m[2]),0,0);return d;}
+        const am = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i); if(am){const d=new Date();let h=parseInt(am[1]);const mins=parseInt(am[2]);const per=am[3].toUpperCase();if(per==='PM'&&h!==12)h+=12; if(per==='AM'&&h===12)h=0; d.setHours(h,mins,0,0);return d;}
+        return null;
+      };
+      const P=A(p); const B=A(a); if(!P||!B) return ""; return Math.round((B.getTime()-P.getTime())/(60*1000)).toString();
+    } catch { return ""; }
+  };
+
+  const rows: any[] = [];
+  for (const l of filteredLoads) {
+    const t = parseTW(l.time_window);
+    const base = [
+      l.load_id,
+      l.fleet_vehicle?.vehicle_id || "",
+      l.origin,
+      l.destination,
+      format(parseISO(l.loading_date), "yyyy-MM-dd"),
+      format(parseISO(l.offloading_date), "yyyy-MM-dd"),
+      l.status,
+    ];
+    if (t) {
+      rows.push([
+        ...base,
+        t.o.pa, t.o.aa, varMin(t.o.pa, t.o.aa),
+        t.o.pd, t.o.ad, varMin(t.o.pd, t.o.ad),
+        t.t.pa, t.t.aa, varMin(t.t.pa, t.t.aa),
+        t.t.pd, t.t.ad, varMin(t.t.pd, t.t.ad),
+      ]);
+    } else {
+      rows.push([...base, "","","", "","","", "","","", "","",""]);
+    }
+  }
+
+  autoTable(doc,{
+    startY: 34,
+    head: [[
+      "Load ID","Vehicle","Origin","Destination","Loading Date","Offloading Date","Status",
+      "O Plan Arr","O Act Arr","O Var (min)",
+      "O Plan Dep","O Act Dep","O Var (min)",
+      "D Plan Arr","D Act Arr","D Var (min)",
+      "D Plan Dep","D Act Dep","D Var (min)",
+    ]],
+    body: rows,
+    theme: "grid",
+    headStyles:{ fillColor: primary, textColor:[255,255,255], fontStyle:"bold", fontSize:8 },
+    bodyStyles:{ textColor: text, fontSize:8 },
+    alternateRowStyles:{ fillColor:[249,250,251] },
+    margin:{ left: 8, right: 8 },
+  });
+
+  doc.save(`punctuality-details-${format(new Date(), "yyyy-MM-dd")}.pdf`);
 }
 
 export type { ReportOptions };

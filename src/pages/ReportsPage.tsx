@@ -27,7 +27,9 @@ import
   } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { parseBackloadInfo, useLoads } from "@/hooks/useLoads";
-import { exportReportsToPdf } from "@/lib/exportReportsToPdf";
+import { exportReportsToPdf, exportVarianceToPdf, exportPunctualityToPdf } from "@/lib/exportReportsToPdf";
+import { exportVarianceToExcel } from "@/lib/exportVarianceToExcel";
+import { exportPunctualityToExcel } from "@/lib/exportPunctualityToExcel";
 import
   {
     differenceInMinutes,
@@ -48,7 +50,7 @@ import
     Clock,
     Download,
     FileText,
-    Map,
+    Map as MapIcon,
     Package,
     PieChart as PieChartIcon,
     TrendingUp,
@@ -86,7 +88,6 @@ interface StatusDistribution {
 interface RouteData {
   route: string;
   loads: number;
-  weight: number;
 }
 
 interface WeeklyTrend {
@@ -101,19 +102,16 @@ interface WeeklyTrend {
 interface TimeWindowData {
   timeWindow: string;
   count: number;
-  avgWeight: number;
 }
 
 interface DayOfWeekData {
   day: string;
   loads: number;
-  avgWeight: number;
 }
 
 interface MonthlyTrend {
   month: string;
   loads: number;
-  totalWeight: number;
 }
 
 interface TimeVarianceData {
@@ -364,6 +362,180 @@ export default function ReportsPage() {
       .sort((a, b) => b.value - a.value);
   }, [filteredLoads]);
 
+  // Daily punctuality (planned vs actual at origin/destination)
+  interface DailyPunctualityRow {
+    date: string;
+    loads: number;
+    originArrivalAvg?: number | null;
+    originDepartureAvg?: number | null;
+    destArrivalAvg?: number | null;
+    destDepartureAvg?: number | null;
+    originDelayCount: number; // count of >15 min late at origin (arrival or departure)
+    destDelayCount: number;   // count of >15 min late at destination (arrival or departure)
+  }
+  const dailyPunctuality = useMemo<DailyPunctualityRow[]>(() => {
+    const map = new Map<string, {
+      loads: number;
+      sums: { oa: number; oaN: number; od: number; odN: number; da: number; daN: number; dd: number; ddN: number };
+      originDelayCount: number;
+      destDelayCount: number;
+    }>();
+
+    for (const load of filteredLoads) {
+      const key = format(parseISO(load.loading_date), 'yyyy-MM-dd');
+      const times = parseTimeWindow(load.time_window);
+      if (!times) continue;
+      const oa = calculateVarianceMinutes(times.origin.plannedArrival, times.origin.actualArrival);
+      const od = calculateVarianceMinutes(times.origin.plannedDeparture, times.origin.actualDeparture);
+      const da = calculateVarianceMinutes(times.destination.plannedArrival, times.destination.actualArrival);
+      const dd = calculateVarianceMinutes(times.destination.plannedDeparture, times.destination.actualDeparture);
+
+      if (!map.has(key)) {
+        map.set(key, { loads: 0, sums: { oa: 0, oaN: 0, od: 0, odN: 0, da: 0, daN: 0, dd: 0, ddN: 0 }, originDelayCount: 0, destDelayCount: 0 });
+      }
+      const agg = map.get(key)!;
+      agg.loads += 1;
+      if (oa !== null) { agg.sums.oa += oa; agg.sums.oaN += 1; if (oa > 15) agg.originDelayCount += 1; }
+      if (od !== null) { agg.sums.od += od; agg.sums.odN += 1; if (od > 15) agg.originDelayCount += 1; }
+      if (da !== null) { agg.sums.da += da; agg.sums.daN += 1; if (da > 15) agg.destDelayCount += 1; }
+      if (dd !== null) { agg.sums.dd += dd; agg.sums.ddN += 1; if (dd > 15) agg.destDelayCount += 1; }
+    }
+
+    const rows: DailyPunctualityRow[] = [];
+    Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0])).forEach(([date, agg]) => {
+      rows.push({
+        date,
+        loads: agg.loads,
+        originArrivalAvg: agg.sums.oaN ? Math.round(agg.sums.oa / agg.sums.oaN) : null,
+        originDepartureAvg: agg.sums.odN ? Math.round(agg.sums.od / agg.sums.odN) : null,
+        destArrivalAvg: agg.sums.daN ? Math.round(agg.sums.da / agg.sums.daN) : null,
+        destDepartureAvg: agg.sums.ddN ? Math.round(agg.sums.dd / agg.sums.ddN) : null,
+        originDelayCount: agg.originDelayCount,
+        destDelayCount: agg.destDelayCount,
+      });
+    });
+    return rows;
+  }, [filteredLoads]);
+
+  // Weekly punctuality (grouped by week start - Monday)
+  interface WeeklyPunctualityRow {
+    week: string; // label like "MMM d"
+    loads: number;
+    originArrivalAvg?: number | null;
+    originDepartureAvg?: number | null;
+    destArrivalAvg?: number | null;
+    destDepartureAvg?: number | null;
+    originDelayCount: number;
+    destDelayCount: number;
+  }
+  const weeklyPunctuality = useMemo<WeeklyPunctualityRow[]>(() => {
+    const now = new Date();
+    const monthsToSubtract = timeRange === '3months' ? 3 : timeRange === '6months' ? 6 : 12;
+    const startDate = subMonths(now, monthsToSubtract);
+    const weeks = eachWeekOfInterval({ start: startDate, end: now }, { weekStartsOn: 1 });
+    const byWeekStartISO = new Map<string, {
+      label: string; loads: number; sums: { oa: number; oaN: number; od: number; odN: number; da: number; daN: number; dd: number; ddN: number }; originDelayCount: number; destDelayCount: number;
+    }>();
+
+    for (const weekStart of weeks) {
+      const key = format(weekStart, 'yyyy-MM-dd');
+      byWeekStartISO.set(key, { label: format(weekStart, 'MMM d'), loads: 0, sums: { oa: 0, oaN: 0, od: 0, odN: 0, da: 0, daN: 0, dd: 0, ddN: 0 }, originDelayCount: 0, destDelayCount: 0 });
+    }
+
+    for (const load of filteredLoads) {
+      const loadDate = parseISO(load.loading_date);
+      // Find weekStart Monday
+      const weekStart = eachWeekOfInterval({ start: loadDate, end: loadDate }, { weekStartsOn: 1 })[0];
+      const key = format(weekStart, 'yyyy-MM-dd');
+      if (!byWeekStartISO.has(key)) continue;
+      const times = parseTimeWindow(load.time_window);
+      if (!times) continue;
+      const oa = calculateVarianceMinutes(times.origin.plannedArrival, times.origin.actualArrival);
+      const od = calculateVarianceMinutes(times.origin.plannedDeparture, times.origin.actualDeparture);
+      const da = calculateVarianceMinutes(times.destination.plannedArrival, times.destination.actualArrival);
+      const dd = calculateVarianceMinutes(times.destination.plannedDeparture, times.destination.actualDeparture);
+      const agg = byWeekStartISO.get(key)!;
+      agg.loads += 1;
+      if (oa !== null) { agg.sums.oa += oa; agg.sums.oaN += 1; if (oa > 15) agg.originDelayCount += 1; }
+      if (od !== null) { agg.sums.od += od; agg.sums.odN += 1; if (od > 15) agg.originDelayCount += 1; }
+      if (da !== null) { agg.sums.da += da; agg.sums.daN += 1; if (da > 15) agg.destDelayCount += 1; }
+      if (dd !== null) { agg.sums.dd += dd; agg.sums.ddN += 1; if (dd > 15) agg.destDelayCount += 1; }
+    }
+
+    return Array.from(byWeekStartISO.entries()).map(([_, v]) => ({
+      week: v.label,
+      loads: v.loads,
+      originArrivalAvg: v.sums.oaN ? Math.round(v.sums.oa / v.sums.oaN) : null,
+      originDepartureAvg: v.sums.odN ? Math.round(v.sums.od / v.sums.odN) : null,
+      destArrivalAvg: v.sums.daN ? Math.round(v.sums.da / v.sums.daN) : null,
+      destDepartureAvg: v.sums.ddN ? Math.round(v.sums.dd / v.sums.ddN) : null,
+      originDelayCount: v.originDelayCount,
+      destDelayCount: v.destDelayCount,
+    }));
+  }, [filteredLoads, timeRange]);
+
+  // Delay summary across filtered range (where delays occurred)
+  const delaySummary = useMemo(() => {
+    const originDelaysByLocation: Record<string, number> = {};
+    const destDelaysByLocation: Record<string, number> = {};
+    for (const load of filteredLoads) {
+      const times = parseTimeWindow(load.time_window);
+      if (!times) continue;
+      const originName = load.origin;
+      const destName = load.destination;
+      const oa = calculateVarianceMinutes(times.origin.plannedArrival, times.origin.actualArrival);
+      const od = calculateVarianceMinutes(times.origin.plannedDeparture, times.origin.actualDeparture);
+      const da = calculateVarianceMinutes(times.destination.plannedArrival, times.destination.actualArrival);
+      const dd = calculateVarianceMinutes(times.destination.plannedDeparture, times.destination.actualDeparture);
+      const add = (map: Record<string, number>, key: string, val: number | null) => { if (val !== null && val > 15) map[key] = (map[key] || 0) + val; };
+      add(originDelaysByLocation, originName, oa);
+      add(originDelaysByLocation, originName, od);
+      add(destDelaysByLocation, destName, da);
+      add(destDelaysByLocation, destName, dd);
+    }
+    const topOrigins = Object.entries(originDelaysByLocation).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    const topDests = Object.entries(destDelaysByLocation).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    return { topOrigins, topDests };
+  }, [filteredLoads]);
+
+  // Compact charts: delays by location (counts of late arrivals/departures)
+  interface DelayBarRow { location: string; arrLate: number; depLate: number; totalLate: number }
+  const originDelayChartData = useMemo<DelayBarRow[]>(() => {
+    const byLoc: Record<string, { arr: number; dep: number }> = {};
+    for (const load of filteredLoads) {
+      const t = parseTimeWindow(load.time_window);
+      if (!t) continue;
+      const k = load.origin;
+      if (!byLoc[k]) byLoc[k] = { arr: 0, dep: 0 };
+      const oa = calculateVarianceMinutes(t.origin.plannedArrival, t.origin.actualArrival);
+      const od = calculateVarianceMinutes(t.origin.plannedDeparture, t.origin.actualDeparture);
+      if (oa !== null && oa > 15) byLoc[k].arr += 1;
+      if (od !== null && od > 15) byLoc[k].dep += 1;
+    }
+    return Object.entries(byLoc)
+      .map(([location, v]) => ({ location, arrLate: v.arr, depLate: v.dep, totalLate: v.arr + v.dep }))
+      .sort((a, b) => b.totalLate - a.totalLate)
+      .slice(0, 10);
+  }, [filteredLoads]);
+
+  const destinationDelayChartData = useMemo<DelayBarRow[]>(() => {
+    const byLoc: Record<string, { arr: number; dep: number }> = {};
+    for (const load of filteredLoads) {
+      const t = parseTimeWindow(load.time_window);
+      if (!t) continue;
+      const k = load.destination;
+      if (!byLoc[k]) byLoc[k] = { arr: 0, dep: 0 };
+      const da = calculateVarianceMinutes(t.destination.plannedArrival, t.destination.actualArrival);
+      const dd = calculateVarianceMinutes(t.destination.plannedDeparture, t.destination.actualDeparture);
+      if (da !== null && da > 15) byLoc[k].arr += 1;
+      if (dd !== null && dd > 15) byLoc[k].dep += 1;
+    }
+    return Object.entries(byLoc)
+      .map(([location, v]) => ({ location, arrLate: v.arr, depLate: v.dep, totalLate: v.arr + v.dep }))
+      .sort((a, b) => b.totalLate - a.totalLate)
+      .slice(0, 10);
+  }, [filteredLoads]);
+
   // Status distribution
   const statusDistribution = useMemo<StatusDistribution[]>(() => {
     const distribution: Record<string, number> = {};
@@ -382,14 +554,13 @@ export default function ReportsPage() {
 
   // Top routes by load count
   const topRoutes = useMemo<RouteData[]>(() => {
-    const routes: Record<string, { loads: number; weight: number }> = {};
+    const routes: Record<string, { loads: number }> = {};
     filteredLoads.forEach((load) => {
       const route = `${load.origin} → ${load.destination}`;
       if (!routes[route]) {
-        routes[route] = { loads: 0, weight: 0 };
+        routes[route] = { loads: 0 };
       }
       routes[route].loads += 1;
-      routes[route].weight += load.weight || 0;
     });
     return Object.entries(routes)
       .map(([route, data]) => ({ route, ...data }))
@@ -428,20 +599,18 @@ export default function ReportsPage() {
 
   // Time window analysis - categorized for better readability
   const timeWindowAnalysis = useMemo<TimeWindowData[]>(() => {
-    const windows: Record<string, { count: number; totalWeight: number }> = {};
+    const windows: Record<string, { count: number }> = {};
     filteredLoads.forEach((load) => {
       const category = categorizeTimeWindow(load.time_window);
       if (!windows[category]) {
-        windows[category] = { count: 0, totalWeight: 0 };
+        windows[category] = { count: 0 };
       }
       windows[category].count += 1;
-      windows[category].totalWeight += load.weight || 0;
     });
     return Object.entries(windows)
       .map(([timeWindow, data]) => ({
         timeWindow,
         count: data.count,
-        avgWeight: Math.round(data.totalWeight / data.count),
       }))
       .sort((a, b) => b.count - a.count);
   }, [filteredLoads]);
@@ -457,24 +626,20 @@ export default function ReportsPage() {
       "Friday",
       "Saturday",
     ];
-    const dayData: Record<number, { loads: number; totalWeight: number }> = {};
+    const dayData: Record<number, { loads: number }> = {};
 
     filteredLoads.forEach((load) => {
       const loadDate = parseISO(load.loading_date);
       const day = getDay(loadDate);
       if (!dayData[day]) {
-        dayData[day] = { loads: 0, totalWeight: 0 };
+        dayData[day] = { loads: 0 };
       }
       dayData[day].loads += 1;
-      dayData[day].totalWeight += load.weight || 0;
     });
 
     return days.map((day, index) => ({
       day: day.slice(0, 3),
       loads: dayData[index]?.loads || 0,
-      avgWeight: dayData[index]
-        ? Math.round(dayData[index].totalWeight / dayData[index].loads)
-        : 0,
     }));
   }, [filteredLoads]);
 
@@ -498,7 +663,6 @@ export default function ReportsPage() {
       months.push({
         month: format(monthDate, "MMM yyyy"),
         loads: monthLoads.length,
-        totalWeight: monthLoads.reduce((sum, l) => sum + (l.weight || 0), 0),
       });
     }
 
@@ -508,15 +672,9 @@ export default function ReportsPage() {
   // Summary statistics
   const summaryStats = useMemo(() => {
     const totalLoads = filteredLoads.length;
-    const totalWeight = filteredLoads.reduce(
-      (sum, l) => sum + (l.weight || 0),
-      0,
-    );
     const deliveredCount = filteredLoads.filter(
       (l) => l.status === "delivered",
     ).length;
-    const avgWeightPerLoad =
-      totalLoads > 0 ? Math.round(totalWeight / totalLoads) : 0;
     const deliveryRate =
       totalLoads > 0 ? Math.round((deliveredCount / totalLoads) * 100) : 0;
     const uniqueRoutes = new Set(
@@ -525,8 +683,6 @@ export default function ReportsPage() {
 
     return {
       totalLoads,
-      totalWeight,
-      avgWeightPerLoad,
       deliveryRate,
       uniqueRoutes,
     };
@@ -1069,7 +1225,7 @@ export default function ReportsPage() {
                   }
                   className="gap-2 cursor-pointer"
                 >
-                  <Map className="h-4 w-4 text-amber-500" />
+                  <MapIcon className="h-4 w-4 text-amber-500" />
                   <span>Route Analysis</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -1084,6 +1240,21 @@ export default function ReportsPage() {
                 >
                   <Clock className="h-4 w-4 text-cyan-500" />
                   <span>Time Analysis</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => exportVarianceToPdf(loads, timeRange)}
+                  className="gap-2 cursor-pointer"
+                >
+                  <Clock className="h-4 w-4 text-amber-600" />
+                  <span>Variance (PDF)</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => exportVarianceToExcel(loads, timeRange)}
+                  className="gap-2 cursor-pointer"
+                >
+                  <Download className="h-4 w-4 text-emerald-600" />
+                  <span>Variance (Excel)</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1521,6 +1692,8 @@ export default function ReportsPage() {
               </Card>
             </div>
 
+            {/* Removed Compact Daily & Weekly Variance section per request */}
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Delivery Performance Distribution */}
               <Card className="overflow-hidden">
@@ -1804,6 +1977,60 @@ export default function ReportsPage() {
               </Card>
             )}
 
+            {/* Visual Delays by Location + Export */}
+            <div className="flex gap-2 justify-end">
+              <Button size="sm" variant="outline" onClick={() => exportPunctualityToExcel(filteredLoads, timeRange)}>
+                Export Excel (Punctuality)
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => exportPunctualityToPdf(filteredLoads, timeRange)}>
+                Export PDF (Punctuality)
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className="overflow-hidden">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg font-semibold">Origin Delays (by name)</CardTitle>
+                  <CardDescription>Late arrivals and departures (over 15 min)</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-[350px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={originDelayChartData} layout="vertical" margin={{ top: 10, right: 20, left: 20, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.4} horizontal vertical={false} />
+                        <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: "#6b7280", fontSize: 12 }} />
+                        <YAxis dataKey="location" type="category" width={150} axisLine={false} tickLine={false} tick={{ fill: "#374151", fontSize: 11 }} />
+                        <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+                        <Legend />
+                        <Bar dataKey="arrLate" name="Late Arrivals" stackId="a" fill="#f59e0b" barSize={20} radius={[0, 6, 6, 0]} />
+                        <Bar dataKey="depLate" name="Late Departures" stackId="a" fill="#ef4444" barSize={20} radius={[0, 6, 6, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="overflow-hidden">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg font-semibold">Destination Delays (by name)</CardTitle>
+                  <CardDescription>Late arrivals and departures (over 15 min)</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-[350px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={destinationDelayChartData} layout="vertical" margin={{ top: 10, right: 20, left: 20, bottom: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.4} horizontal vertical={false} />
+                        <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: "#6b7280", fontSize: 12 }} />
+                        <YAxis dataKey="location" type="category" width={150} axisLine={false} tickLine={false} tick={{ fill: "#374151", fontSize: 11 }} />
+                        <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+                        <Legend />
+                        <Bar dataKey="arrLate" name="Late Arrivals" stackId="a" fill="#3b82f6" barSize={20} radius={[0, 6, 6, 0]} />
+                        <Bar dataKey="depLate" name="Late Departures" stackId="a" fill="#8b5cf6" barSize={20} radius={[0, 6, 6, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
             {/* Performance Legend */}
             <Card className="bg-slate-50/50 dark:bg-slate-900/30 border-slate-200/50 dark:border-slate-800/30">
               <CardContent className="pt-6 pb-5">
@@ -1912,7 +2139,7 @@ export default function ReportsPage() {
                 <CardContent className="pt-6 pb-5">
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <Map className="h-4 w-4 text-amber-500" />
+                      <MapIcon className="h-4 w-4 text-amber-500" />
                       <p className="text-xs font-semibold uppercase tracking-wider text-amber-600/70 dark:text-amber-400/70">
                         Destinations
                       </p>
@@ -2303,7 +2530,7 @@ export default function ReportsPage() {
                   <Card className="overflow-hidden">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                        <Map className="h-5 w-5 text-indigo-500" />
+                        <MapIcon className="h-5 w-5 text-indigo-500" />
                         Backload Route Analysis
                       </CardTitle>
                       <CardDescription>
