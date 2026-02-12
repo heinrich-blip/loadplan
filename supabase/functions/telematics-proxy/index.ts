@@ -15,8 +15,12 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 };
 
+// Types for JWT and auth response
+type JWTPayload = { iat?: number; exp?: number; [key: string]: unknown } | null;
+interface AuthResponse { access_token?: string; expires_in?: number; [key: string]: unknown }
+
 // Add JWT decoding function
-function decodeJWT(token: string): any {
+function decodeJWT(token: string): JWTPayload {
   try {
     const base64Url = token.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -31,32 +35,32 @@ function decodeJWT(token: string): any {
 }
 
 // Fix token expiration times
-function fixTokenExpiration(data: any): any {
+function fixTokenExpiration<T extends AuthResponse>(data: T): T {
   if (!data.access_token) return data;
   
   const decoded = decodeJWT(data.access_token);
   if (!decoded) return data;
   
   console.log('Original token expiration:', {
-    iat: decoded.iat,
-    exp: decoded.exp,
-    iat_date: new Date(decoded.iat * 1000).toISOString(),
-    exp_date: new Date(decoded.exp * 1000).toISOString(),
+    iat: decoded?.iat,
+    exp: decoded?.exp,
+    iat_date: decoded?.iat ? new Date(decoded.iat * 1000).toISOString() : 'n/a',
+    exp_date: decoded?.exp ? new Date(decoded.exp * 1000).toISOString() : 'n/a',
   });
   
   // Check if timestamps are from the future (incorrect server time)
   const now = Math.floor(Date.now() / 1000);
-  const isFutureToken = decoded.iat > now;
+  const isFutureToken = (decoded?.iat ?? 0) > now;
   
   if (isFutureToken) {
     console.log('Token has future timestamps - adjusting...');
     
     // Calculate offset (assume server is ~10 years in the future)
-    const offset = decoded.iat - now;
+    const offset = (decoded?.iat ?? now) - now;
     
     // Adjust timestamps
-    const adjustedIat = decoded.iat - offset;
-    const adjustedExp = decoded.exp - offset;
+    const adjustedIat = (decoded?.iat ?? now) - offset;
+    const adjustedExp = (decoded?.exp ?? now + 3600) - offset;
     
     console.log('Adjusted token expiration:', {
       adjustedIat,

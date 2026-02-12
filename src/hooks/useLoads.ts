@@ -245,27 +245,72 @@ export function useGeofenceLoadUpdate() {
       eventType: GeofenceEventType; 
       timestamp: Date;
     }) => {
+      // Fetch current load to merge time_window JSON updates
+      const { data: currentLoad, error: fetchError } = await supabase
+        .from('loads')
+        .select('id, time_window')
+        .eq('id', loadId)
+        .single();
+      if (fetchError) throw fetchError;
+
       const updates: Record<string, unknown> = {};
       const isoTimestamp = timestamp.toISOString();
+      // Prepare merged time_window JSON
+      interface TimeWindowSection {
+        plannedArrival?: string;
+        plannedDeparture?: string;
+        actualArrival?: string;
+        actualDeparture?: string;
+      }
+      interface TimeWindowData {
+        origin?: TimeWindowSection;
+        destination?: TimeWindowSection;
+        backload?: unknown;
+      }
+      let timeWindowData: TimeWindowData = {};
+      try {
+        const parsed = currentLoad?.time_window ? JSON.parse(currentLoad.time_window as unknown as string) : {};
+        if (parsed && typeof parsed === 'object') {
+          timeWindowData = parsed as TimeWindowData;
+        }
+      } catch {
+        timeWindowData = {};
+      }
+      if (!timeWindowData.origin) timeWindowData.origin = {};
+      if (!timeWindowData.destination) timeWindowData.destination = {};
       
       switch (eventType) {
         case 'loading_arrival':
           updates.actual_loading_arrival = isoTimestamp;
+          updates.actual_loading_arrival_verified = true;
+          updates.actual_loading_arrival_source = 'auto';
+          timeWindowData.origin.actualArrival = isoTimestamp;
           // Status remains scheduled until departure
           break;
         case 'loading_departure':
           updates.actual_loading_departure = isoTimestamp;
+          updates.actual_loading_departure_verified = true;
+          updates.actual_loading_departure_source = 'auto';
+          timeWindowData.origin.actualDeparture = isoTimestamp;
           updates.status = 'in-transit';
           break;
         case 'offloading_arrival':
           updates.actual_offloading_arrival = isoTimestamp;
+          updates.actual_offloading_arrival_verified = true;
+          updates.actual_offloading_arrival_source = 'auto';
+          timeWindowData.destination.actualArrival = isoTimestamp;
           // Status still in-transit until departure
           break;
         case 'offloading_departure':
           updates.actual_offloading_departure = isoTimestamp;
+          updates.actual_offloading_departure_verified = true;
+          updates.actual_offloading_departure_source = 'auto';
+          timeWindowData.destination.actualDeparture = isoTimestamp;
           updates.status = 'delivered';
           break;
       }
+
+      updates.time_window = JSON.stringify(timeWindowData);
       
       const { data, error } = await supabase
         .from('loads')

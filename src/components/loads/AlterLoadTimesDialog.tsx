@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useUpdateLoadTimes } from "@/hooks/useLoads";
+import { useUpdateLoadTimes, type Load } from "@/hooks/useLoads";
 import { formatISO } from "date-fns";
 
 const schema = z.object({
@@ -21,27 +21,29 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-export function AlterLoadTimesDialog({ open, onOpenChange, load }) {
+export function AlterLoadTimesDialog({ open, onOpenChange, load }: { open: boolean; onOpenChange: (open: boolean) => void; load: Load | null }) {
+  const safeLoad: Partial<Load> = load ?? {};
   const form = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
-      actual_loading_arrival: load.actual_loading_arrival || "",
-      actual_loading_arrival_verified: load.actual_loading_arrival_verified || false,
-      actual_loading_departure: load.actual_loading_departure || "",
-      actual_loading_departure_verified: load.actual_loading_departure_verified || false,
-      actual_offloading_arrival: load.actual_offloading_arrival || "",
-      actual_offloading_arrival_verified: load.actual_offloading_arrival_verified || false,
-      actual_offloading_departure: load.actual_offloading_departure || "",
-      actual_offloading_departure_verified: load.actual_offloading_departure_verified || false,
+      actual_loading_arrival: safeLoad.actual_loading_arrival || "",
+      actual_loading_arrival_verified: !!safeLoad.actual_loading_arrival_verified,
+      actual_loading_departure: safeLoad.actual_loading_departure || "",
+      actual_loading_departure_verified: !!safeLoad.actual_loading_departure_verified,
+      actual_offloading_arrival: safeLoad.actual_offloading_arrival || "",
+      actual_offloading_arrival_verified: !!safeLoad.actual_offloading_arrival_verified,
+      actual_offloading_departure: safeLoad.actual_offloading_departure || "",
+      actual_offloading_departure_verified: !!safeLoad.actual_offloading_departure_verified,
     },
   });
   const updateTimes = useUpdateLoadTimes();
 
   const onSubmit = (values: FormData) => {
+    if (!load?.id) return;
     // Parse and update time_window JSON
     let timeWindowData;
     try {
-      timeWindowData = load.time_window ? JSON.parse(load.time_window) : {};
+      timeWindowData = load?.time_window ? JSON.parse(load.time_window) : {};
     } catch {
       timeWindowData = {};
     }
@@ -87,7 +89,7 @@ export function AlterLoadTimesDialog({ open, onOpenChange, load }) {
           <div>
             <label className="flex items-center gap-2">
               Loading Arrival
-              {load.actual_loading_arrival_source === 'auto' && (
+              {load?.actual_loading_arrival_source === 'auto' && (
                 <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Auto</span>
               )}
             </label>
@@ -97,7 +99,7 @@ export function AlterLoadTimesDialog({ open, onOpenChange, load }) {
           <div>
             <label className="flex items-center gap-2">
               Loading Departure
-              {load.actual_loading_departure_source === 'auto' && (
+              {load?.actual_loading_departure_source === 'auto' && (
                 <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Auto</span>
               )}
             </label>
@@ -107,7 +109,7 @@ export function AlterLoadTimesDialog({ open, onOpenChange, load }) {
           <div>
             <label className="flex items-center gap-2">
               Offloading Arrival
-              {load.actual_offloading_arrival_source === 'auto' && (
+              {load?.actual_offloading_arrival_source === 'auto' && (
                 <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Auto</span>
               )}
             </label>
@@ -117,7 +119,7 @@ export function AlterLoadTimesDialog({ open, onOpenChange, load }) {
           <div>
             <label className="flex items-center gap-2">
               Offloading Departure
-              {load.actual_offloading_departure_source === 'auto' && (
+              {load?.actual_offloading_departure_source === 'auto' && (
                 <span className="text-xs bg-blue-100 text-blue-700 px-1 rounded">Auto</span>
               )}
             </label>
@@ -125,7 +127,7 @@ export function AlterLoadTimesDialog({ open, onOpenChange, load }) {
             <Checkbox {...form.register("actual_offloading_departure_verified")} /> Verified
           </div>
           <DialogFooter>
-            <Button type="submit">Save</Button>
+            <Button type="submit" disabled={!load?.id}>Save</Button>
           </DialogFooter>
         </form>
       </DialogContent>

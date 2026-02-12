@@ -179,6 +179,9 @@ export default function DeliveriesDashboardPage() {
   // Track stationary time within geofences
   // Key: "loadId-destination", Value: {entryTime: Date, stationaryStartTime: Date | null}
   const stationaryTrackingRef = useRef<Map<string, { entryTime: Date; stationaryStartTime: Date | null }>>(new Map());
+  // Light hysteresis for CBC and destination depots: require 2 consecutive inside readings
+  // Key: `${vehicleKey}-${depotName}-{origin|dest}` → count of consecutive inside polls
+  const insideCountRef = useRef<Map<string, number>>(new Map());
   const geofenceUpdateMutation = useGeofenceLoadUpdate();
 
   const [organisationId, setOrganisationId] = useState<number | null>(() => {
@@ -398,6 +401,19 @@ export default function DeliveriesDashboardPage() {
     );
 
     for (const load of activeLoads) {
+      // Gate: Only process the earliest NOT-DELIVERED load for each vehicle.
+      // Prevents a next load (same origin) from triggering while the current load isn't complete.
+      const gateVehicleId = load.fleet_vehicle?.vehicle_id || "unassigned";
+      if (gateVehicleId !== "unassigned") {
+        const notDeliveredForVehicle = loadsWithETA
+          .filter((l) => (l.fleet_vehicle?.vehicle_id || "unassigned") === gateVehicleId && l.status !== "delivered")
+          .sort((a, b) => parseISO(a.loading_date).getTime() - parseISO(b.loading_date).getTime());
+        const earliestNotDelivered = notDeliveredForVehicle[0];
+        if (earliestNotDelivered && earliestNotDelivered.id !== load.id) {
+          // Skip processing this load until the earlier one is fully delivered
+          continue;
+        }
+      }
       const asset = load.telematicsAsset;
       if (!asset?.lastLatitude || !asset?.lastLongitude) continue;
 
@@ -412,8 +428,35 @@ export default function DeliveriesDashboardPage() {
 
       if (originDepot && destinationDepot) {
         // Check current geofence status
-        const isAtOrigin = isWithinDepot(currentPos.lat, currentPos.lon, originDepot);
-        const isAtDestination = isWithinDepot(currentPos.lat, currentPos.lon, destinationDepot);
+        const originInsideRaw = isWithinDepot(currentPos.lat, currentPos.lon, originDepot);
+        const destInsideRaw = isWithinDepot(currentPos.lat, currentPos.lon, destinationDepot);
+
+        // Hysteresis helpers (tolerant for BV; stricter for CBC and depots)
+        const originKeyForHyst = `${vehicleKey}-${originDepot.name}-origin`;
+        const destKeyForHyst = `${vehicleKey}-${destinationDepot.name}-dest`;
+
+        const requiresHysteresis = (depotName: string, depotType: string) => {
+          const isBV = depotName.toLowerCase() === 'bv';
+          const isCBC = depotName.toLowerCase() === 'cbc';
+          const isDepotType = depotType === 'depot';
+          return isCBC || isDepotType; // BV tolerant; CBC and destination depots require hysteresis
+        };
+
+        const applyHysteresis = (key: string, rawInside: boolean, enabled: boolean) => {
+          if (!enabled) return rawInside;
+          const current = insideCountRef.current.get(key) || 0;
+          if (rawInside) {
+            const next = current + 1;
+            insideCountRef.current.set(key, next);
+            return next >= 2; // require 2 consecutive inside readings
+          } else {
+            insideCountRef.current.set(key, 0);
+            return false;
+          }
+        };
+
+        const isAtOrigin = applyHysteresis(originKeyForHyst, originInsideRaw, requiresHysteresis(originDepot.name, originDepot.type));
+        const isAtDestination = applyHysteresis(destKeyForHyst, destInsideRaw, requiresHysteresis(destinationDepot.name, destinationDepot.type));
         
         // Check previous geofence status (if we have previous position)
         const wasAtOrigin = previousPos
@@ -452,6 +495,16 @@ export default function DeliveriesDashboardPage() {
           if (justEnteredOrigin && !geofenceEntryRef.current.has(originEntryKey)) {
             // Record entry time for pass-through detection
             geofenceEntryRef.current.set(originEntryKey, timestamp);
+            // Immediate arrival trigger on entry with de-duplication
+            const arrivalEventKey = `${load.id}-loading_arrival-${dateKey}`;
+            if (!processedEventsRef.current.has(arrivalEventKey) && !load.actual_loading_arrival) {
+              geofenceUpdateMutation.mutate({
+                loadId: load.id,
+                eventType: "loading_arrival" as GeofenceEventType,
+                timestamp,
+              });
+              processedEventsRef.current.add(arrivalEventKey);
+            }
             console.log(`[Geofence] Truck ${vehicleKey} ENTERED origin geofence ${originDepot.name} for load ${load.load_id}`);
           }
         }
@@ -505,6 +558,16 @@ export default function DeliveriesDashboardPage() {
             geofenceEntryRef.current.set(destEntryKey, timestamp);
             // Initialize stationary tracking
             stationaryTrackingRef.current.set(destEntryKey, { entryTime: timestamp, stationaryStartTime: null });
+            // Immediate arrival trigger on entry with de-duplication
+            const destArrivalEventKey = `${load.id}-offloading_arrival-${dateKey}`;
+            if (!processedEventsRef.current.has(destArrivalEventKey) && !load.actual_offloading_arrival) {
+              geofenceUpdateMutation.mutate({
+                loadId: load.id,
+                eventType: "offloading_arrival" as GeofenceEventType,
+                timestamp,
+              });
+              processedEventsRef.current.add(destArrivalEventKey);
+            }
             console.log(`[Geofence] Truck ${vehicleKey} ENTERED destination geofence ${destinationDepot.name} for load ${load.load_id}`);
           }
         }
@@ -528,7 +591,7 @@ export default function DeliveriesDashboardPage() {
                 if (stationaryDurationMinutes >= 5 && !load.actual_offloading_arrival) {
                   // Trigger arrival event after 5 minutes of being stationary
                   const eventKey = `${load.id}-offloading_arrival-stationary-${dateKey}`;
-                  if (!processedEventsRef.current.has(eventKey)) {
+                  if (!processedEventsRef.current.has(eventKey) && !processedEventsRef.current.has(`${load.id}-offloading_arrival-${dateKey}`)) {
                     console.log(`[Geofence] Truck ${vehicleKey} STATIONARY for ${Math.round(stationaryDurationMinutes)} minutes at ${destinationDepot.name} - TRIGGERING ARRIVAL for load ${load.load_id}`);
                     processedEventsRef.current.add(eventKey);
                     geofenceUpdateMutation.mutate({
@@ -578,6 +641,19 @@ export default function DeliveriesDashboardPage() {
                   eventType: "offloading_departure" as GeofenceEventType,
                   timestamp,
                 });
+                // Cleanup per-load caches after marking delivered
+                geofenceEntryRef.current.delete(originEntryKey);
+                geofenceEntryRef.current.delete(destEntryKey);
+                stationaryTrackingRef.current.delete(destEntryKey);
+                // Clear inside hysteresis counters for this vehicle at these depots
+                insideCountRef.current.delete(originKeyForHyst);
+                insideCountRef.current.delete(destKeyForHyst);
+                // Remove processed event keys for this load to avoid growth
+                const keysToDelete: string[] = [];
+                processedEventsRef.current.forEach((k) => {
+                  if (k.startsWith(`${load.id}-`)) keysToDelete.push(k);
+                });
+                keysToDelete.forEach((k) => processedEventsRef.current.delete(k));
               }
             }
             // Clear the entry record after processing the pass-through
