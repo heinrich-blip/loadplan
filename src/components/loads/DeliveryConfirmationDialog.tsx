@@ -65,7 +65,7 @@ interface DeliveryConfirmationDialogProps {
   verificationOnly?: boolean;
 }
 
-// Parse time_window JSON to get times
+// Parse time_window JSON to get times and backload data
 function parseTimeWindow(timeWindow: string) {
   try {
     const data = JSON.parse(timeWindow);
@@ -82,6 +82,7 @@ function parseTimeWindow(timeWindow: string) {
         actualArrival: data.destination?.actualArrival || '',
         actualDeparture: data.destination?.actualDeparture || '',
       },
+      backload: data.backload || null, // Preserve backload data
     };
   } catch {
     return {
@@ -97,6 +98,7 @@ function parseTimeWindow(timeWindow: string) {
         actualArrival: '',
         actualDeparture: '',
       },
+      backload: null,
     };
   }
 }
@@ -165,7 +167,7 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load, verificat
 
     const currentTimes = parseTimeWindow(load.time_window);
 
-    // Update time_window with actual times
+    // Update time_window with actual times while preserving backload
     const timeData = {
       origin: {
         plannedArrival: currentTimes.origin.plannedArrival,
@@ -179,6 +181,7 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load, verificat
         actualArrival: data.destActualArrival || currentTimes.destination.actualArrival,
         actualDeparture: data.destActualDeparture || currentTimes.destination.actualDeparture,
       },
+      backload: currentTimes.backload, // Preserve existing backload data
     };
 
     // Prepare main fields for actual times (ISO string if date provided)
@@ -279,7 +282,7 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load, verificat
     const currentTimes = parseTimeWindow(load.time_window);
     const data = form.getValues();
 
-    // Update time_window with actual times without changing status
+    // Update time_window with actual times while preserving backload
     const timeData = {
       origin: {
         plannedArrival: currentTimes.origin.plannedArrival,
@@ -291,8 +294,9 @@ export function DeliveryConfirmationDialog({ open, onOpenChange, load, verificat
         plannedArrival: currentTimes.destination.plannedArrival,
         plannedDeparture: currentTimes.destination.plannedDeparture,
         actualArrival: data.destActualArrival || currentTimes.destination.actualArrival,
-        actualDeparture: data.destActualDeparture || currentTimes.destination.actualArrival,
+        actualDeparture: data.destActualDeparture || currentTimes.destination.actualDeparture,
       },
+      backload: currentTimes.backload, // Preserve existing backload data
     };
 
     // Prepare main fields for actual times (ISO string if date provided)

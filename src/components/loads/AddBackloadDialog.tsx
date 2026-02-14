@@ -73,14 +73,14 @@ function parseTimeWindow(timeWindow: string) {
   try {
     const data = JSON.parse(timeWindow);
     return {
-      origin: data.origin || { plannedArrival: '', plannedDeparture: '' },
-      destination: data.destination || { plannedArrival: '', plannedDeparture: '' },
+      origin: data.origin || { plannedArrival: '', plannedDeparture: '', actualArrival: '', actualDeparture: '' },
+      destination: data.destination || { plannedArrival: '', plannedDeparture: '', actualArrival: '', actualDeparture: '' },
       backload: data.backload || null,
     };
   } catch {
     return {
-      origin: { plannedArrival: '', plannedDeparture: '' },
-      destination: { plannedArrival: '', plannedDeparture: '' },
+      origin: { plannedArrival: '', plannedDeparture: '', actualArrival: '', actualDeparture: '' },
+      destination: { plannedArrival: '', plannedDeparture: '', actualArrival: '', actualDeparture: '' },
       backload: null,
     };
   }
@@ -136,13 +136,23 @@ export function AddBackloadDialog({ open, onOpenChange, load }: AddBackloadDialo
   const handleSubmit = (data: FormData) => {
     if (!load) return;
 
-    // Parse existing time window data
+    // Parse existing time window data to preserve actual times
     const existingTimeData = parseTimeWindow(load.time_window);
 
-    // Build updated time_window with backload info
+    // Build updated time_window with backload info while preserving actual times
     const timeData = {
-      origin: existingTimeData.origin,
-      destination: existingTimeData.destination,
+      origin: {
+        plannedArrival: existingTimeData.origin.plannedArrival,
+        plannedDeparture: existingTimeData.origin.plannedDeparture,
+        actualArrival: existingTimeData.origin.actualArrival,
+        actualDeparture: existingTimeData.origin.actualDeparture,
+      },
+      destination: {
+        plannedArrival: existingTimeData.destination.plannedArrival,
+        plannedDeparture: existingTimeData.destination.plannedDeparture,
+        actualArrival: existingTimeData.destination.actualArrival,
+        actualDeparture: existingTimeData.destination.actualDeparture,
+      },
       backload: {
         enabled: true,
         destination: data.backloadDestination,

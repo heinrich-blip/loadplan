@@ -25,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Load, useDeleteLoad, useUpdateLoadTimes } from "@/hooks/useLoads";
+import { Load, useDeleteLoad } from "@/hooks/useLoads";
 import { AlterLoadTimesDialog } from "./AlterLoadTimesDialog";
 import { DeliveryConfirmationDialog } from "./DeliveryConfirmationDialog";
 import { exportLoadToPdf } from "@/lib/exportLoadToPdf";
@@ -66,21 +66,6 @@ interface LoadsTableProps {
   isLoading?: boolean;
 }
 
-interface TimeUpdateData {
-  actual_loading_arrival?: string;
-  actual_loading_arrival_verified?: boolean;
-  actual_loading_arrival_source?: "auto" | "manual";
-  actual_loading_departure?: string;
-  actual_loading_departure_verified?: boolean;
-  actual_loading_departure_source?: "auto" | "manual";
-  actual_offloading_arrival?: string;
-  actual_offloading_arrival_verified?: boolean;
-  actual_offloading_arrival_source?: "auto" | "manual";
-  actual_offloading_departure?: string;
-  actual_offloading_departure_verified?: boolean;
-  actual_offloading_departure_source?: "auto" | "manual";
-  time_window?: string;
-}
 
 interface TimeWindowData {
   origin?: {
@@ -241,7 +226,7 @@ export function LoadsTable({
   const [verificationOnly, setVerificationOnly] = useState(false);
 
   const deleteLoad = useDeleteLoad();
-  const updateLoadTimes = useUpdateLoadTimes();
+  
 
   function needsVerification(load: Load) {
     return (
@@ -257,72 +242,7 @@ export function LoadsTable({
     );
   }
 
-  function handleQuickAdd(load: Load) {
-    const now = new Date();
-    const times: TimeUpdateData = {};
-
-    if (!load.actual_loading_arrival) {
-      times.actual_loading_arrival = now.toISOString();
-      times.actual_loading_arrival_verified = true;
-      times.actual_loading_arrival_source = "manual";
-    }
-    if (!load.actual_loading_departure) {
-      times.actual_loading_departure = now.toISOString();
-      times.actual_loading_departure_verified = true;
-      times.actual_loading_departure_source = "manual";
-    }
-    if (!load.actual_offloading_arrival) {
-      times.actual_offloading_arrival = now.toISOString();
-      times.actual_offloading_arrival_verified = true;
-      times.actual_offloading_arrival_source = "manual";
-    }
-    if (!load.actual_offloading_departure) {
-      times.actual_offloading_departure = now.toISOString();
-      times.actual_offloading_departure_verified = true;
-      times.actual_offloading_departure_source = "manual";
-    }
-
-    interface TimeWindowSection {
-      plannedArrival?: string;
-      plannedDeparture?: string;
-      actualArrival?: string;
-      actualDeparture?: string;
-    }
-    interface TimeWindowData {
-      origin?: TimeWindowSection;
-      destination?: TimeWindowSection;
-      backload?: unknown;
-    }
-    let timeWindowData: TimeWindowData = {};
-    try {
-      const parsed = load.time_window ? JSON.parse(load.time_window) : {};
-      if (parsed && typeof parsed === 'object') {
-        timeWindowData = parsed as TimeWindowData;
-      }
-    } catch {
-      timeWindowData = {};
-    }
-    timeWindowData.origin = timeWindowData.origin || {};
-    timeWindowData.destination = timeWindowData.destination || {};
-
-    if (!load.actual_loading_arrival) {
-      timeWindowData.origin.actualArrival = times.actual_loading_arrival;
-    }
-    if (!load.actual_loading_departure) {
-      timeWindowData.origin.actualDeparture = times.actual_loading_departure;
-    }
-    if (!load.actual_offloading_arrival) {
-      timeWindowData.destination.actualArrival = times.actual_offloading_arrival;
-    }
-    if (!load.actual_offloading_departure) {
-      timeWindowData.destination.actualDeparture = times.actual_offloading_departure;
-    }
-
-    if (Object.keys(times).length > 0) {
-      times.time_window = JSON.stringify(timeWindowData);
-      updateLoadTimes.mutate({ id: load.id, times });
-    }
-  }
+  // Quick Add Times removed to simplify UI and avoid accidental overwrites
 
   const handleDeleteClick = (e: React.MouseEvent, load: Load) => {
     e.stopPropagation();
@@ -682,7 +602,14 @@ export function LoadsTable({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <StatusStepper load={load} />
+                        <StatusStepper 
+                          load={load}
+                          onRequestDelivered={(l) => {
+                            setLoadForDelivery(l);
+                            setVerificationOnly(false);
+                            setDeliveryDialogOpen(true);
+                          }}
+                        />
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
@@ -739,16 +666,7 @@ export function LoadsTable({
                               </DropdownMenuItem>
                             )}
 
-                            {load.status !== "delivered" && (
-                              <DropdownMenuItem
-                                onClick={(e) =>
-                                  handleDeliveryClick(e as unknown as React.MouseEvent, load)
-                                }
-                              >
-                                <CheckCircle className="h-4 w-4 mr-2" />
-                                Confirm Delivery
-                              </DropdownMenuItem>
-                            )}
+                            
 
                             <DropdownMenuItem
                               onClick={(e) =>
@@ -759,17 +677,14 @@ export function LoadsTable({
                               Export to PDF
                             </DropdownMenuItem>
 
-                            {load.status === "delivered" && (
-                              <DropdownMenuItem onClick={() => handleQuickAdd(load)}>
-                                <CheckCircle className="h-4 w-4 mr-2" />
-                                Quick Add Times
-                              </DropdownMenuItem>
-                            )}
+                            {/* Quick Add Times removed */}
 
                             <DropdownMenuItem
-                              onClick={() => {
-                                setLoadToAlter(load);
-                                setAlterDialogOpen(true);
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setLoadForDelivery(load);
+                                setVerificationOnly(true);
+                                setDeliveryDialogOpen(true);
                               }}
                             >
                               <Calendar className="h-4 w-4 mr-2" />

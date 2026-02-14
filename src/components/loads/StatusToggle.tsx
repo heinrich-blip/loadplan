@@ -224,7 +224,7 @@ export function StatusToggle({ load, compact = false }: StatusToggleProps) {
 }
 
 // Simple inline status stepper for row display
-export function StatusStepper({ load }: { load: Load }) {
+export function StatusStepper({ load, onRequestDelivered }: { load: Load; onRequestDelivered?: (load: Load) => void }) {
   const updateLoad = useUpdateLoad();
   const [isUpdating, setIsUpdating] = useState(false);
   const currentStatusIndex = statusOrder.indexOf(load.status);
@@ -233,6 +233,11 @@ export function StatusStepper({ load }: { load: Load }) {
     e.stopPropagation();
     
     if (newStatus === load.status || isUpdating) return;
+    // Intercept Delivered to require times via dialog if handler provided
+    if (newStatus === 'delivered' && onRequestDelivered) {
+      onRequestDelivered(load);
+      return;
+    }
     
     setIsUpdating(true);
     
